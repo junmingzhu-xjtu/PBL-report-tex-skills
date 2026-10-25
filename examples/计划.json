@@ -1,0 +1,35 @@
+{
+  "title": "内分泌系统 / PBL 大报告",
+  "author": "第 × 组",
+  "date": "2026 年 10 月",
+  "chapters": [
+    {
+      "title": "案例回顾",
+      "files": [
+        "提交/01_病例.docx"
+      ]
+    },
+    {
+      "title": "重大问题",
+      "files": [
+        "提交/02_机制.docx",
+        "提交/03_因果.docx"
+      ]
+    },
+    {
+      "title": "次要问题",
+      "files": [
+        "提交/04_鉴别.docx"
+      ]
+    },
+    {
+      "title": "机制图",
+      "figures": [
+        {
+          "path": "pics/mech1.png",
+          "caption": "甲亢与应激抬高 PRL 的三条链（机制示意）"
+        }
+      ]
+    }
+  ]
+}
