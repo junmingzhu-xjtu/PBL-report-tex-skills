@@ -20,7 +20,7 @@ import time
 import traceback
 
 APP_NAME = "PBL 大报告生成器"
-APP_VERSION = "1.4.2"
+APP_VERSION = "1.4.3"
 LOG_FILE = os.path.join(tempfile.gettempdir(), "pbl_report_gui.log")
 
 
@@ -955,6 +955,7 @@ if __name__ == "__main__":
             pass
         raise
     sys.exit(code)
+
 
 
 

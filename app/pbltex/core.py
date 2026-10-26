@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """pbltex.core —— Word 稿件 → LaTeX 的核心转换库
 
 两种产物：
@@ -34,8 +34,9 @@ def esc(s: str) -> str:
 
 
 def norm(t: str) -> str:
-    """去掉全角空格 / 制表符 / 多余空格。"""
+    """去掉全角空格 / 制表符 / 软换行 / 多余空格。"""
     t = (t or "").replace("\u3000", " ").replace("\xa0", " ").replace("\t", " ")
+    t = t.replace("\r\n", " ").replace("\r", " ").replace("\n", " ").replace("\x0b", " ")
     t = re.sub(r" {2,}", " ", t)
     return t.strip()
 
@@ -108,6 +109,8 @@ def _all_bold(par) -> bool:
 def _clean_heading(txt: str) -> str:
     t = norm(txt)
     t = re.sub(r"^\s*\d{1,2}(?:[.．]\d{1,2}){0,3}\s*[、.．]?\s*", "", t)
+    # 软换行合并后常留下“ （作者）”“ ，”这类多余空格
+    t = re.sub(r"\s+([（()）、，。；：！？“”\"'《》])", r"\1", t)
     t = t.rstrip("：: ；;，,、.")
     return t.strip()
 
@@ -1057,7 +1060,9 @@ def convert_chapters(items, outdir, title="PBL 大报告", author="", date="",
             sec_title, drop_first_heading = _pick_section_title(lead, content, base)
             origin = lead[0] if lead else ""
             if drop_first_heading and content and content[0][0] == "h":
-                content = content[1:]
+                # 稿件的第一个标题被拿去当“一级标题”了，剩下部分要重新归一化，
+                # 否则它下面的二级标题会被当成三级，出现 \section 后直接 \subsubsection 的跳级。
+                content = fix_heading_levels(content[1:])
 
             body.append("%% 稿件：%s　一级标题：%s" % (base, sec_title))
             body.append(r"\section{%s}" % esc(sec_title))
