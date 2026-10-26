@@ -20,7 +20,7 @@ import time
 import traceback
 
 APP_NAME = "PBL 大报告生成器"
-APP_VERSION = "1.4.1"
+APP_VERSION = "1.4.2"
 LOG_FILE = os.path.join(tempfile.gettempdir(), "pbl_report_gui.log")
 
 
@@ -130,12 +130,46 @@ def run_cli(argv) -> int:
         return 0 if (not pdf or info["pdf"]) else 1
 
     if argv[0] == "--cli-chapters":
-        plan = json.load(open(argv[1], encoding="utf-8-sig"))
-        items = [(p, int(c)) for p, c in plan["items"]]
         try:
-            info = convert_chapters(items, plan["outdir"], title=plan.get("title", "PBL 大报告"),
+            with open(argv[1], encoding="utf-8-sig") as fh:
+                plan = json.load(fh)
+        except Exception as exc:  # noqa: BLE001
+            _cli_out("ERROR 读不了计划文件：%s" % exc)
+            return 2
+        base = os.path.dirname(os.path.abspath(argv[1]))
+        titles, figures = {}, {}
+        if plan.get("items"):
+            items = [(os.path.join(base, p) if not os.path.isabs(p) else p, int(c))
+                     for p, c in plan["items"]]
+        elif plan.get("chapters"):
+            # 兼容技能脚本 chapters_docx2tex.py 的计划格式
+            from pbltex.core import CHAPTER_NAMES
+            items = []
+            for idx, ch in enumerate(plan["chapters"]):
+                title = ch.get("title")
+                if title and (idx >= len(CHAPTER_NAMES) or title != CHAPTER_NAMES[idx]):
+                    titles[idx] = title
+                for f in ch.get("files") or []:
+                    items.append((f if os.path.isabs(f) else os.path.join(base, f), idx))
+                figs = []
+                for fg in ch.get("figures") or []:
+                    p = fg.get("path") if isinstance(fg, dict) else fg
+                    cap = fg.get("caption", "") if isinstance(fg, dict) else ""
+                    if p:
+                        figs.append((p if os.path.isabs(p) else os.path.join(base, p), cap))
+                if figs:
+                    figures[idx] = figs
+        else:
+            _cli_out("ERROR 计划 JSON 里既没有 items 也没有 chapters")
+            return 2
+        outdir = plan.get("outdir") or default_outdir()
+        try:
+            info = convert_chapters(items, outdir, title=plan.get("title", "PBL 大报告"),
                                     author=plan.get("author", ""), date=plan.get("date", ""),
-                                    compile_pdf=bool(plan.get("pdf", True)), log=_cli_out)
+                                    compile_pdf=bool(plan.get("pdf", True)), log=_cli_out,
+                                    chapter_titles=titles or None,
+                                    chapter_figures=figures or None,
+                                    cover=plan.get("cover"))
         except Exception as exc:  # noqa: BLE001
             _cli_out("ERROR %s" % exc)
             _cli_out(traceback.format_exc())
@@ -921,6 +955,7 @@ if __name__ == "__main__":
             pass
         raise
     sys.exit(code)
+
 
 
 
