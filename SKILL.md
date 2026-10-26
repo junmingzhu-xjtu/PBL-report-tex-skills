@@ -54,6 +54,13 @@ python scripts\chapters_docx2tex.py 提交目录 -o 大报告.tex --auto --compi
   "title": "内分泌系统 / PBL 大报告",
   "author": "第 × 组",
   "date": "2026 年 10 月",
+  "cover": {
+    "line1": "2023级11组PBL学习", "line2": "学习报告",
+    "case": "Case 1：难缠的脖子痛",
+    "tutor": "马凯歌", "chair": "朱俊铭", "secretary": "郭育恒",
+    "members": ["叶瑞林", "张欣仪", "韩曦", "任欣萌", "王思源", "于子轩", "牛海华", "韩畅"],
+    "logo": "pics/xjtu_logo.png"
+  },
   "chapters": [
     {"title": "案例回顾", "files": ["提交/01_病例.docx"]},
     {"title": "重大问题", "files": ["提交/02_机制.docx", "提交/03_因果.docx"]},
@@ -65,7 +72,8 @@ python scripts\chapters_docx2tex.py 提交目录 -o 大报告.tex --auto --compi
 }
 ```
 
-- `files` / `figures` 相对**计划 JSON 所在目录**；JSON 存 **UTF-8 无 BOM**（也兼容带 BOM）；
+- `files` / `figures` / `cover.logo` 相对**计划 JSON 所在目录**；JSON 存 **UTF-8 无 BOM**（也兼容带 BOM）；
+- `cover` 可选：给了就出定制封面（照 23 级 Case 报告的样式），不给就退回 `\maketitle` 默认页；
 - 空章（`files` 和 `figures` 都空）不会输出，章号按实际输出的顺序编；
 - `chapters[].title` 可自定义章名，用来覆盖默认的“案例回顾/重大问题/…”。
 
@@ -95,12 +103,32 @@ python scripts\chapters_docx2tex.py 提交目录 -o 大报告.tex --auto --compi
 - 机制图：全组画的图，放 `figures`；
 - 判不出来默认**重大问题**；`--auto` 只是初猜，**必须人工核对**一遍。
 
+### 封面（照 23 级 Case 报告样式）
+
+```
+[校徽]                     ← cover.logo（可留空）
+2023级11组PBL学习           ← cover.line1（宋体 一号 加粗居中，数字与汉字之间不留空格）
+学习报告                    ← cover.line2（宋体 24pt 加粗居中）
+Case 1：难缠的脖子痛        ← cover.case（30pt 加粗居中）
+
+  Tutor：马凯歌             ← cover.tutor
+  PBL小组主席：朱俊铭        ← cover.chair
+  PBL小组书记：郭育恒        ← cover.secretary
+  PBL小组成员：……          ← cover.members（主席/书记会自动从成员里剔除；每行 4 个）
+                                    cover.date（页脚居中）
+```
+
+- 成员写全组名单即可，主席、书记不必重复写（程序会去重）；
+- 校徽放 `assets/cover_logo.png`（仓库里带一张西安交大红标），也可以随时换成别的图片。
+
 ## 四、脚本参数速查
 
 ```
 docx2tex.py           input.docx [-o out.tex] [--margins 上,下,左,右] [--upcite]
 merge_docx2tex.py     目录|文件... [-o out.tex] [--strip-lead] [--toc/--no-toc] [--compile]
-chapters_docx2tex.py  计划.json|目录 [-o out.tex] [--auto] [--compile] [--title/--author/--date]
+chapters_docx2tex.py  计划.json|目录 [-o out.tex] [--auto] [--compile]
+                      [--title/--author/--date] [--cover-line1/--cover-line2/--case]
+                      [--tutor/--chair/--secretary/--members/--logo]
 make_report_template4.py [输出.docx]
 dump_headings.py      目录|文件...
 ```
@@ -117,7 +145,7 @@ dump_headings.py      目录|文件...
 | 列表 | 有效 `numId`（≠0）或 `(1)` 开头；连续「标签：内容」段落自动合成 `(1)(2)(3)` 并加粗标签 |
 | 图片 | 段落内嵌图 → `figures/`（`文件名_序号`）+ `figure` 环境；紧随的“图x. ……”→ `\caption` |
 | 表格 | Word 表 → booktabs 三线表；**宽度自适应**（见下）；合并单元格按 `gridSpan` → `\multicolumn` |
-| 文献 | “参考文献”后以 `[n]` 开头的段落 → `thebibliography`；正文 `[n]` → `\cite` 上标；跨文件去重后重编号 |
+| 文献 | “参考文献”后以 `[n]` 开头的段落 → `thebibliography`；正文 `[n]` **直接写成 `\textsuperscript{[n]}`**（不用 `\cite`，只编译一遍也不会出现 `[?,?,?]`）；跨文件去重后重编号 |
 
 **表格宽度三档**（保证不溢出正文）
 
@@ -142,7 +170,8 @@ pip install pyinstaller python-docx
 
 ## 七、坑与对策
 
-1. **xelatex 要跑两遍**才有目录页码；`--compile` 已自动跑两遍。
+1. **xelatex 要跑两遍**才有目录页码；`--compile` 至少跑两遍，`.log` 还提示 Rerun 时最多补到三遍。
+   **引用不依赖两遍**：正文上标是算好后直接写死的，只跑一遍也不会出现 `[?,?,?]`。
 2. 中文缺字（μ 等）：`fontset=windows` + `\setmainfont{Times New Roman}`。
 3. 黑体没有粗体字重：`\setCJKfamilyfont{heibold}{SimHei}[AutoFakeBold=2]`，否则 `\bfseries` 回退。
 4. 图题要 `图1.`（无空格）：`\DeclareCaptionLabelFormat{...}{\CJKsetecglue{}#1#2}`，
@@ -151,7 +180,10 @@ pip install pyinstaller python-docx
 6. 大纲级别全 9 的文档（PDF 转来的 docx）不会误判成标题。
 7. 表格永远用上面的三档策略，别直接 `tabular{lccc}`，长中文会冲出版心。
 8. 图片路径、JSON 路径写错会打印 `[SKIP] 找不到文件` —— 按提示修正相对路径。
-9. Word 那边要对齐版式：`scripts/make_report_template4.py` 生成模板
+9. 不要给 v2 的 tex 再加 natbib / `\cite`：旧版用 natbib，第二遍没跑完就会显示 `[?,?,?]`；
+   现在正文是上标编号直出，`thebibliography` 只负责排参考文献列表。
+   另外 v2 的 ctexrep 里 `\refname` 未定义，要 `\providecommand`，不能 `\renewcommand`。
+10. Word 那边要对齐版式：`scripts/make_report_template4.py` 生成模板
    （章=微软雅黑三号加粗居中，节/小节小四加粗，正文小四，边距 2.54/2.54/1.91/1.91）。
 
 ## 八、交付前自检
@@ -160,5 +192,6 @@ pip install pyinstaller python-docx
 - [ ] PDF 目录页：`第二章 重大问题` → `1. 题目` → `1.1` → `1.1.1`（章内编号从 1. 开始）
 - [ ] 每张图下面都有“图x.”题注，正文有“见图x”引用；图/表编号连续
 - [ ] 每张表都没超出正文宽度（渲染成图看一眼最保险）
-- [ ] 参考文献编号连续、正文 `[n]` 与文末一一对应
+- [ ] 封面：首行 / Case 标题 / Tutor / 主席 / 书记 / 成员 都对，成员里没有重复写上主席和书记
+- [ ] 参考文献编号连续、正文上标 `[n]` 与文末一一对应，没有 `[?]`
 - [ ] 章标题为微软雅黑加粗居中（不是宋体）

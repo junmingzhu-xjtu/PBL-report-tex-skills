@@ -352,7 +352,7 @@ PREAMBLE_SINGLE = PREAMBLE_COMMON + r"""\documentclass[UTF8,zihao=-4,a4paper,fon
 \usepackage{enumitem}
 \usepackage{caption}
 \usepackage[hidelinks]{hyperref}
-\usepackage[super,square,sort&compress,numbers]{natbib}
+%% 引用：正文直接写上标编号（\textsuperscript{[1,2]}），不依赖 natbib 的两遍解析
 
 \setmainfont{Times New Roman}
 \pagestyle{plain}
@@ -409,7 +409,7 @@ PREAMBLE_CHAPTERS = PREAMBLE_COMMON + r"""\documentclass[UTF8,zihao=-4,a4paper,f
 \usepackage{enumitem}
 \usepackage{caption}
 \usepackage[hidelinks]{hyperref}
-\usepackage[super,square,sort&compress,numbers]{natbib}
+%% 引用：正文直接写上标编号（\textsuperscript{[1,2]}），不依赖 natbib 的两遍解析
 
 %% ===== 每人一个问题 = 一级标题，编号在每个章内从 1. 重来 =====
 %% 章：第二章 重大问题；章内：1. 题目 / 1.1 / 1.1.1（三级封顶）
@@ -451,6 +451,9 @@ PREAMBLE_CHAPTERS = PREAMBLE_COMMON + r"""\documentclass[UTF8,zihao=-4,a4paper,f
 
 \setCJKfamilyfont{heibold}{SimHei}[AutoFakeBold=2]
 \newcommand{\heibold}{\CJKfamily{heibold}}
+%% 封面标题用宋体加粗（SimSun 没有粗体字重 → 伪粗体）
+\setCJKfamilyfont{songbold}{SimSun}[AutoFakeBold=2]
+\newcommand{\songbold}{\CJKfamily{songbold}}
 
 %% 图题「图1. 说明」：标签名与数字之间不留空格
 \DeclareCaptionLabelFormat{pbllabel}{\CJKsetecglue{}#1#2}
@@ -458,7 +461,7 @@ PREAMBLE_CHAPTERS = PREAMBLE_COMMON + r"""\documentclass[UTF8,zihao=-4,a4paper,f
 \renewcommand{\figurename}{图}
 \renewcommand{\tablename}{表}
 %% 参考文献标题由 thebibliography 自己排（ctexrep 里是 \chapter*，再写一遍标题会重复/空页）
-\renewcommand{\refname}{参考文献}
+\providecommand{\refname}{参考文献}
 \providecommand{\bibname}{参考文献}
 
 \setlength{\parindent}{2em}
@@ -604,6 +607,93 @@ def figure_tex(paths, caption="", width=0.85) -> str:
 
 
 # --------------------------------------------------------------------------- #
+# 封面（照 23 级 Case 报告的样式：校徽 + 三行标题 + Tutor/主席/书记/成员）
+# --------------------------------------------------------------------------- #
+COVER_MEMBER_PER_LINE = 4
+
+
+def _split_names(members):
+    if isinstance(members, str):
+        members = re.split(r"[\s,，、;；]+", members)
+    return [m.strip() for m in (members or []) if m and m.strip()]
+
+
+def cover_tex(cover, figdir, log=None) -> str:
+    """生成 titlepage。cover 为 None / 空则返回空串（调用方退回 \\maketitle）。"""
+    if not cover:
+        return ""
+    log = log or (lambda *_: None)
+    g = dict(cover)
+
+    line1 = (g.get("line1") or "").strip()
+    line2 = (g.get("line2") or "学习报告").strip()
+    case = (g.get("case") or "").strip()
+    tutor = (g.get("tutor") or "").strip()
+    chair = (g.get("chair") or "").strip()
+    secretary = (g.get("secretary") or "").strip()
+    date = (g.get("date") or "").strip()
+    members = _split_names(g.get("members"))
+    # 主席/书记若混在成员里，先从成员中剔除（“其余为组员”）
+    members = [m for m in members if m not in (chair, secretary)]
+
+    logo_rel = ""
+    logo = (g.get("logo") or "").strip()
+    if logo:
+        if os.path.isfile(logo):
+            ext = os.path.splitext(logo)[1].lower() or ".png"
+            name = "cover_logo" + ext
+            try:
+                shutil.copyfile(logo, os.path.join(figdir, name))
+                logo_rel = "figures/" + name
+            except OSError as exc:  # noqa: BLE001
+                log("  [警告] 封面图片复制失败（%s）" % exc)
+        else:
+            log("  [警告] 找不到封面图片：%s" % logo)
+
+    out = [r"\begin{titlepage}", r"  \thispagestyle{empty}", r"  \begin{center}"]
+    if logo_rel:
+        out.append(r"    \includegraphics[width=0.62\linewidth]{%s}\\[1.6em]" % logo_rel)
+    if line1:
+        out.append(r"    {\CJKsetecglue{}\songbold\zihao{1} %s}\\[0.35em]" % esc(line1))
+    if line2:
+        out.append(r"    {\CJKsetecglue{}\songbold\fontsize{24pt}{30pt}\selectfont %s}\\[1.5em]" % esc(line2))
+    if case:
+        out.append(r"    \begin{minipage}{0.92\linewidth}\centering"
+                   r"{\CJKsetecglue{}\bfseries\fontsize{30pt}{36pt}\selectfont %s}\end{minipage}" % esc(case))
+    out.append(r"  \end{center}")
+    out.append(r"  \vspace{2.0em}")
+
+    fs = r"\fontsize{16pt}{21pt}\selectfont"
+    rows = []
+    if tutor:
+        rows.append(r"    \hspace{2.0em}{%s Tutor：%s}\par" % (fs, esc(tutor)))
+    if chair:
+        rows.append(r"    \hspace{2.0em}{%s PBL小组主席：%s}\par" % (fs, esc(chair)))
+    if secretary:
+        rows.append(r"    \hspace{2.0em}{%s PBL小组书记：%s}\par" % (fs, esc(secretary)))
+    if members:
+        chunks = [members[i:i + COVER_MEMBER_PER_LINE]
+                  for i in range(0, len(members), COVER_MEMBER_PER_LINE)]
+        first = r"    \hspace{2.0em}{%s PBL小组成员：%s}\par" % (
+            fs, r"\hspace{0.85em}".join(esc(m) for m in chunks[0]))
+        rows.append(first)
+        pad = r"\hspace{2.0em}\hspace*{6.3em}"      # 与“PBL小组成员：”后的姓名对齐
+        for ch in chunks[1:]:
+            rows.append(r"    %s{%s %s}\par" % (pad, fs, r"\hspace{0.85em}".join(esc(m) for m in ch)))
+    if rows:
+        out.append(r"  \begin{flushleft}")
+        out.extend(rows)
+        out.append(r"  \end{flushleft}")
+
+    if date:
+        out.append(r"  \vfill")
+        out.append(r"  \begin{center}{%s %s}\end{center}"
+                   % (r"\fontsize{14pt}{18pt}\selectfont", esc(date)))
+    out.append(r"\end{titlepage}")
+    return "\n".join(out)
+
+
+# --------------------------------------------------------------------------- #
 # 引用处理
 # --------------------------------------------------------------------------- #
 def _expand_cite(tok: str):
@@ -622,14 +712,42 @@ def _expand_cite(tok: str):
     return nums
 
 
+def _fmt_nums(nums) -> str:
+    """[1,2,5,6,7] → '1,2,5-7'（GB/T 7714 的压缩写法）。"""
+    nums = sorted({int(n) for n in nums if int(n) > 0})
+    if not nums:
+        return ""
+    runs, start, prev = [], nums[0], nums[0]
+    for n in nums[1:]:
+        if n == prev + 1:
+            prev = n
+            continue
+        runs.append((start, prev))
+        start = prev = n
+    runs.append((start, prev))
+    out = []
+    for a, b in runs:
+        if a == b:
+            out.append(str(a))
+        elif b == a + 1:
+            out.extend([str(a), str(b)])
+        else:
+            out.append("%d-%d" % (a, b))
+    return ",".join(out)
+
+
 def apply_citations(text: str, mapping: dict) -> str:
-    """把正文 [1]、[2-3] 换成 \\cite{refN}（映射不到的原样保留）。"""
+    """把正文 [1]、[2-3] 直接写成上标编号，例如 \\textsuperscript{[1,2]}。
+
+    不依赖 \\cite 的两遍解析：即使只编译一遍（或第二遍失败），也不会出现 [?,?,?]。
+    映射不到的编号（原稿引了但参考文献里没有）保留原文，方便人工发现。
+    """
     def repl(m):
         nums = _expand_cite(m.group(1))
-        keys = ["ref%d" % mapping[n] for n in nums if n in mapping]
-        if len(keys) != len(nums) or not keys:
+        mapped = [mapping[n] for n in nums if n in mapping]
+        if not mapped or len(mapped) != len(nums):
             return m.group(0)
-        return "\\cite{%s}" % ",".join(keys)
+        return "\\textsuperscript{[%s]}" % _fmt_nums(mapped)
     return CITE_RE.sub(repl, text)
 
 
@@ -850,7 +968,7 @@ def _pick_section_title(lead, content, base):
 def convert_chapters(items, outdir, title="PBL 大报告", author="", date="",
                      tex_name="大报告.tex", compile_pdf=False,
                      margins=DEFAULT_MARGINS, log=None,
-                     chapter_titles=None, chapter_figures=None) -> dict:
+                     chapter_titles=None, chapter_figures=None, cover=None) -> dict:
     """items: [(docx_path, 章序号 0-3), ...]，按章顺序输出 ctexrep 大报告。
 
     chapter_titles: {章序号: 章标题}，覆盖默认的「案例回顾/重大问题/…」；
@@ -965,14 +1083,19 @@ def convert_chapters(items, outdir, title="PBL 大报告", author="", date="",
             body.append(r"  \bibitem{ref%d} %s" % (k, esc(r)))
         body.append(r"\end{thebibliography}")
 
-    head = [
-        r"\title{%s}" % esc(title),
-        r"\author{%s}" % esc(author),
-        r"\date{%s}" % esc(date),
-        r"\maketitle",
-        r"\tableofcontents",
-        r"\newpage",
-    ]
+    head = []
+    if cover:
+        cv = dict(cover)
+        cv.setdefault("date", date)
+        head.append(cover_tex(cv, figdir, log))
+    else:
+        head.extend([
+            r"\title{%s}" % esc(title),
+            r"\author{%s}" % esc(author),
+            r"\date{%s}" % esc(date),
+            r"\maketitle",
+        ])
+    head.extend([r"\tableofcontents", r"\newpage"])
     tex_path = os.path.join(outdir, tex_name)
     with open(tex_path, "w", encoding="utf-8") as fh:
         fh.write(preamble_chapters(margins) + "\n".join(head) + "\n\n" + "\n\n".join(body) + "\n\n\\end{document}\n")

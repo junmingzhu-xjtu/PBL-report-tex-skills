@@ -9,18 +9,27 @@
       2.  下一个人的题目
 
 实现委托给 app/pbltex/core.py（与桌面版软件共用同一套引擎：
-标题降级、表格自适应宽度、参考文献跨文件去重）。
+标题降级、封面、表格自适应宽度、参考文献跨文件去重、上标引用直出）。
 
 用法：
     python scripts/chapters_docx2tex.py 计划.json -o 大报告.tex --compile
     python scripts/chapters_docx2tex.py 提交目录 -o 大报告.tex --auto --compile
-    python scripts/chapters_docx2tex.py 计划.json -o 大报告.tex --compile --pdf-dir out
 
-计划 JSON（与 v1 兼容）：
+计划 JSON（与 v1 兼容，新增 cover）：
 {
   "title": "内分泌系统 / PBL 大报告",
-  "author": "第 × 组",
+  "author": "第11组",
   "date": "2026 年 10 月",
+  "cover": {
+    "line1": "2023级11组PBL学习",
+    "line2": "学习报告",
+    "case": "Case 1：难缠的脖子痛",
+    "tutor": "马凯歌",
+    "chair": "朱俊铭",
+    "secretary": "郭育恒",
+    "members": ["叶瑞林", "张欣仪", "韩曦", "任欣萌", "王思源", "于子轩", "牛海华", "韩畅"],
+    "logo": "pics/xjtu_logo.png"
+  },
   "chapters": [
     {"title": "案例回顾", "files": ["提交/01_病例.docx"]},
     {"title": "重大问题", "files": ["提交/02_机制.docx"]},
@@ -83,11 +92,12 @@ def plan_from_json(plan_path):
         "title": plan.get("title", "PBL 大报告"),
         "author": plan.get("author", ""),
         "date": plan.get("date", ""),
+        "cover": plan.get("cover"),
     }
     return items, titles, figures, meta
 
 
-def plan_from_dir(folder, outdir):
+def plan_from_dir(folder):
     """按关键词自动分章：稿件读题目首行，图片归“机制图”。"""
     docx = [f for f in sorted(glob.glob(os.path.join(folder, "*.docx")))
             if not os.path.basename(f).startswith("~$")]
@@ -102,7 +112,7 @@ def plan_from_dir(folder, outdir):
     if imgs:
         figures[3] = [(os.path.abspath(p), os.path.splitext(os.path.basename(p))[0]) for p in imgs]
         _log("  %d 张图片 → 机制图" % len(imgs))
-    meta = {"title": "PBL 大报告", "author": "", "date": ""}
+    meta = {"title": "PBL 大报告", "author": "", "date": "", "cover": None}
     return items, {}, figures, meta
 
 
@@ -111,10 +121,18 @@ def main():
     ap.add_argument("source", help="计划 JSON 文件，或稿件目录（配 --auto）")
     ap.add_argument("-o", "--output", default="大报告.tex")
     ap.add_argument("--auto", action="store_true", help="按题目关键词把目录里的稿件自动分章")
-    ap.add_argument("--compile", action="store_true", help="生成后用 xelatex 编译两遍")
+    ap.add_argument("--compile", action="store_true", help="生成后用 xelatex 编译")
     ap.add_argument("--title", default="", help="大报告标题（覆盖计划里的 title）")
     ap.add_argument("--author", default="", help="组别 / 作者")
     ap.add_argument("--date", default="", help="日期")
+    ap.add_argument("--cover-line1", default="", help="封面首行，如 2023级11组PBL学习")
+    ap.add_argument("--cover-line2", default="", help="封面次行，默认“学习报告”")
+    ap.add_argument("--case", default="", help="Case 标题，如 Case 1：难缠的脖子痛")
+    ap.add_argument("--tutor", default="")
+    ap.add_argument("--chair", default="")
+    ap.add_argument("--secretary", default="")
+    ap.add_argument("--members", default="", help="组员，空格/逗号分隔")
+    ap.add_argument("--logo", default="", help="封面校徽图片路径")
     args = ap.parse_args()
 
     outdir = os.path.dirname(os.path.abspath(args.output)) or "."
@@ -122,9 +140,18 @@ def main():
     tex_name = os.path.basename(args.output)
 
     if args.auto or os.path.isdir(args.source):
-        items, titles, figures, meta = plan_from_dir(args.source, outdir)
+        items, titles, figures, meta = plan_from_dir(args.source)
     else:
         items, titles, figures, meta = plan_from_json(args.source)
+
+    cover = dict(meta.get("cover") or {})
+    for key, val in (("line1", args.cover_line1), ("line2", args.cover_line2), ("case", args.case),
+                     ("tutor", args.tutor), ("chair", args.chair), ("secretary", args.secretary),
+                     ("members", args.members), ("logo", args.logo)):
+        if val:
+            cover[key] = val
+    if args.date:
+        cover.setdefault("date", args.date)
 
     if args.title:
         meta["title"] = args.title
@@ -140,7 +167,8 @@ def main():
         items, outdir,
         title=meta["title"], author=meta["author"], date=meta["date"],
         tex_name=tex_name, compile_pdf=args.compile,
-        chapter_titles=titles, chapter_figures=figures, log=_log)
+        chapter_titles=titles, chapter_figures=figures,
+        cover=cover or None, log=_log)
 
     _log("")
     _log("生成完成：")

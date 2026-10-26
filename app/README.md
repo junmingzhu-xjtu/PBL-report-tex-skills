@@ -3,7 +3,7 @@
 给不会用命令行的同学用的 **双击即用** 小软件：把 Word（.docx）稿件整理成规范 LaTeX 并编译 PDF。
 与仓库里的 `scripts/` 共用同一套转换引擎（本目录的 `pbltex/`），区别只是多了图形界面。
 
-![界面](../../software_screenshot.png)
+> 界面截图、封面效果见仓库 `app/` 的构建产物；封面默认使用内置校徽 `assets/cover_logo.png`（西安交大）。
 
 ## 两种用法
 
@@ -28,12 +28,12 @@ pip install pyinstaller python-docx
 
 # 单文件版
 pyinstaller --noconfirm --clean --onefile --windowed --icon app.ico `
-  --name "PBL大报告生成器" --add-data "app.ico;." `
+  --name "PBL大报告生成器" --add-data "app.ico;." --add-data "assets;assets" `
   --hidden-import pbltex.core --hidden-import pbltex.toolchain --paths "." app.py
 
 # 免安装文件夹版（推荐分发）
 pyinstaller --noconfirm --clean --onedir --windowed --icon app.ico `
-  --name "PBL大报告生成器" --add-data "app.ico;." `
+  --name "PBL大报告生成器" --add-data "app.ico;." --add-data "assets;assets" `
   --hidden-import pbltex.core --hidden-import pbltex.toolchain --paths "." `
   --distpath dist_app --workpath build_app app.py
 ```
@@ -57,3 +57,11 @@ PBL大报告生成器.exe --selftest          # 只检查界面能否启动
   保证不超出正文宽度。合并单元格按 `gridSpan` 生成 `\multicolumn`。
 - **自动分章**：题目里 `病史/查体/现病史/案例回顾` → 案例回顾；`机制/调节/原理/关系…` → 重大问题；
   `定义/鉴别/简介…` → 次要问题；其余默认重大问题。注意「结合案例分析××」不会被当成案例回顾。
+
+## 封面与引用（v1.3）
+
+- 封面照 23 级 Case 报告样式：校徽 + 2023级××组PBL学习 / 学习报告 / Case x：… + Tutor / 主席 / 书记 / 成员 / 日期。
+  界面「② 合并四章」里直接填；logo 默认取打包进 exe 的 ssets/cover_logo.png。
+- 引用不再走 natbib：正文 [1]、[2-3] 在转换阶段就算好，直接写成 \textsuperscript{[1,2]}，
+  只编译一遍也不会出现 [?,?,?]（以前第二遍没跑完就会全部变成问号）。
+- 编译：至少两遍，.log 仍提示 Rerun 时最多补到三遍；最后一遍失败会在日志里明确警告。

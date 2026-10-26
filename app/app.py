@@ -20,7 +20,7 @@ import time
 import traceback
 
 APP_NAME = "PBL 大报告生成器"
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.3.0"
 LOG_FILE = os.path.join(tempfile.gettempdir(), "pbl_report_gui.log")
 
 
@@ -47,6 +47,15 @@ def default_outdir() -> str:
         d = os.path.join(os.path.expanduser("~"), "Desktop", "PBL生成结果")
         os.makedirs(d, exist_ok=True)
         return d
+
+
+def default_cover_logo() -> str:
+    """内置校徽（打包后从 _MEIPASS/assets 取）。"""
+    for cand in (res_path(os.path.join("assets", "cover_logo.png")),
+                 os.path.join(exe_dir(), "assets", "cover_logo.png")):
+        if os.path.isfile(cand):
+            return cand
+    return ""
 
 
 # --------------------------------------------------------------------------- #
@@ -250,6 +259,9 @@ def launch_gui(preload=None) -> int:
             self.status.pack(side="left")
             self.progress = ttk.Progressbar(bottom, mode="determinate", length=220)
             self.progress.pack(side="right")
+            # 合并模式的“生成大报告”按钮放在状态栏：切到 ② 才出现，始终看得见
+            self.btn_ch = ttk.Button(bottom, text="生成大报告", style="Accent.TButton",
+                                     command=self.do_chapters)
 
             logf = ttk.LabelFrame(self, text="运行日志")
             logf.pack(side="bottom", fill="both", padx=16, pady=(0, 6))
@@ -269,6 +281,7 @@ def launch_gui(preload=None) -> int:
             self._tab_single()
             self._tab_chapters()
             self._tab_env()
+            self.nb.bind("<<NotebookTabChanged>>", self._on_tab_change)
 
         def _tab_single(self):
             sf = ScrollFrame(self.nb)
@@ -324,7 +337,7 @@ def launch_gui(preload=None) -> int:
             box = ttk.LabelFrame(f, text="稿件与分章（选中行后点下方章节按钮即可分配）")
             box.pack(fill="both", expand=True)
             cols = ("idx", "name", "chapter", "title")
-            self.tv_ch = ttk.Treeview(box, columns=cols, show="headings", height=5)
+            self.tv_ch = ttk.Treeview(box, columns=cols, show="headings", height=4)
             self.tv_ch.heading("idx", text="#")
             self.tv_ch.heading("name", text="文件名")
             self.tv_ch.heading("chapter", text="章节")
@@ -354,37 +367,77 @@ def launch_gui(preload=None) -> int:
                            command=lambda k=i: self.assign_chapter(k)).pack(side="left", padx=(6, 0))
             ttk.Button(bar2, text="→ 不收录", command=lambda: self.assign_chapter(-1)).pack(side="left", padx=(6, 0))
 
-            info = ttk.LabelFrame(f, text="报告信息与输出")
-            info.pack(fill="x", pady=(10, 0))
-            g = ttk.Frame(info)
-            g.pack(fill="x", padx=8, pady=(6, 2))
-            ttk.Label(g, text="报告标题：").grid(row=0, column=0, sticky="w")
-            self.e_title = ttk.Entry(g, width=30)
-            self.e_title.insert(0, "×××系统 PBL 大报告")
-            self.e_title.grid(row=0, column=1, sticky="we", padx=6, pady=2)
-            ttk.Label(g, text="组别 / 作者：").grid(row=0, column=2, sticky="w", padx=(16, 0))
-            self.e_author = ttk.Entry(g, width=16)
-            self.e_author.insert(0, "第 × 组")
-            self.e_author.grid(row=0, column=3, sticky="we", padx=6, pady=2)
-            ttk.Label(g, text="日期：").grid(row=1, column=0, sticky="w")
-            self.e_date = ttk.Entry(g, width=30)
-            self.e_date.insert(0, time.strftime("%Y 年 %m 月"))
-            self.e_date.grid(row=1, column=1, sticky="we", padx=6, pady=2)
-            ttk.Label(g, text="输出目录：").grid(row=2, column=0, sticky="w")
-            self.e_ch_out = ttk.Entry(g, width=30)
-            self.e_ch_out.insert(0, default_outdir())
-            self.e_ch_out.grid(row=2, column=1, sticky="we", padx=6, pady=2)
-            ttk.Button(g, text="浏览…", command=lambda: self.pick_dir(self.e_ch_out)).grid(row=2, column=2, padx=(16, 0))
-            g.columnconfigure(1, weight=1)
+            # ---------------- 封面（照 23 级 Case 报告样式） ----------------
+            cov = ttk.LabelFrame(f, text="封面信息（照 23 级 Case 报告的样式：校徽 + 三行标题 + Tutor/主席/书记/成员）")
+            cov.pack(fill="x", pady=(10, 0))
+            cg = ttk.Frame(cov)
+            cg.pack(fill="x", padx=8, pady=(6, 2))
+            ttk.Label(cg, text="首行：").grid(row=0, column=0, sticky="w")
+            self.e_cov_line1 = ttk.Entry(cg, width=26)
+            self.e_cov_line1.insert(0, "2023级11组PBL学习")
+            self.e_cov_line1.grid(row=0, column=1, sticky="we", padx=6, pady=2)
+            ttk.Label(cg, text="次行：").grid(row=0, column=2, sticky="w", padx=(14, 0))
+            self.e_cov_line2 = ttk.Entry(cg, width=12)
+            self.e_cov_line2.insert(0, "学习报告")
+            self.e_cov_line2.grid(row=0, column=3, sticky="we", padx=6, pady=2)
 
-            row3 = ttk.Frame(info)
-            row3.pack(fill="x", padx=8, pady=(2, 8))
+            ttk.Label(cg, text="Case 标题：").grid(row=1, column=0, sticky="w")
+            self.e_cov_case = ttk.Entry(cg, width=26)
+            self.e_cov_case.insert(0, "Case 1：难缠的脖子痛")
+            self.e_cov_case.grid(row=1, column=1, sticky="we", padx=6, pady=2)
+            ttk.Label(cg, text="Tutor：").grid(row=1, column=2, sticky="w", padx=(14, 0))
+            self.e_cov_tutor = ttk.Entry(cg, width=12)
+            self.e_cov_tutor.insert(0, "马凯歌")
+            self.e_cov_tutor.grid(row=1, column=3, sticky="we", padx=6, pady=2)
+
+            ttk.Label(cg, text="主席：").grid(row=2, column=0, sticky="w")
+            f_chair = ttk.Frame(cg)
+            f_chair.grid(row=2, column=1, sticky="we", padx=6, pady=2)
+            self.e_cov_chair = ttk.Entry(f_chair, width=12)
+            self.e_cov_chair.insert(0, "朱俊铭")
+            self.e_cov_chair.pack(side="left", fill="x", expand=True)
+            ttk.Label(f_chair, text="　书记：").pack(side="left")
+            self.e_cov_sec = ttk.Entry(f_chair, width=12)
+            self.e_cov_sec.insert(0, "郭育恒")
+            self.e_cov_sec.pack(side="left", fill="x", expand=True)
+            ttk.Label(cg, text="日期：").grid(row=2, column=2, sticky="w", padx=(14, 0))
+            self.e_cov_date = ttk.Entry(cg, width=12)
+            self.e_cov_date.insert(0, time.strftime("%Y 年 %m 月"))
+            self.e_cov_date.grid(row=2, column=3, sticky="we", padx=6, pady=2)
+
+            ttk.Label(cg, text="组员：").grid(row=3, column=0, sticky="w")
+            self.e_cov_members = ttk.Entry(cg, width=26)
+            self.e_cov_members.insert(0, "叶瑞林 张欣仪 韩曦 任欣萌 王思源 于子轩 牛海华 韩畅")
+            self.e_cov_members.grid(row=3, column=1, columnspan=3, sticky="we", padx=6, pady=2)
+            ttk.Label(cg, text="（空格/逗号分隔；主席与书记不必重复写）", style="Sub.TLabel").grid(
+                row=4, column=1, columnspan=3, sticky="w", padx=6)
+            cg.columnconfigure(1, weight=1)
+            cg.columnconfigure(3, weight=1)
+
+            lrow = ttk.Frame(cov)
+            lrow.pack(fill="x", padx=8, pady=(2, 2))
+            ttk.Label(lrow, text="校徽图片：").pack(side="left")
+            self.e_cov_logo = ttk.Entry(lrow)
+            self.e_cov_logo.insert(0, default_cover_logo())
+            self.e_cov_logo.pack(side="left", fill="x", expand=True, padx=6)
+            ttk.Button(lrow, text="浏览…", command=self.pick_cover_logo).pack(side="left")
+            ttk.Button(lrow, text="不用图", command=lambda: (self.e_cov_logo.delete(0, "end"))).pack(side="left", padx=6)
+
+            orow = ttk.Frame(cov)
+            orow.pack(fill="x", padx=8, pady=(2, 2))
+            ttk.Label(orow, text="输出目录：").pack(side="left")
+            self.e_ch_out = ttk.Entry(orow, width=30)
+            self.e_ch_out.insert(0, default_outdir())
+            self.e_ch_out.pack(side="left", fill="x", expand=True, padx=6)
+            ttk.Button(orow, text="浏览…", command=lambda: self.pick_dir(self.e_ch_out)).pack(side="left")
+
+            row3 = ttk.Frame(cov)
+            row3.pack(fill="x", padx=8, pady=(4, 8))
             self.v_pdf2 = tk.BooleanVar(value=True)
             self.v_open2 = tk.BooleanVar(value=True)
             ttk.Checkbutton(row3, text="顺便编译 PDF", variable=self.v_pdf2, style="Toolbutton").pack(side="left")
             ttk.Checkbutton(row3, text="完成后打开输出文件夹", variable=self.v_open2, style="Toolbutton").pack(side="left", padx=18)
-            self.btn_ch = ttk.Button(row3, text="生成大报告", style="Accent.TButton", command=self.do_chapters)
-            self.btn_ch.pack(side="right")
+            ttk.Label(row3, text="（点右下角“生成大报告”）", style="Sub.TLabel").pack(side="right")
 
         def _tab_env(self):
             f = ttk.Frame(self.nb, padding=10)
@@ -418,8 +471,11 @@ def launch_gui(preload=None) -> int:
                 "    每人的一份稿件 = 章里的一个一级标题（1. 题目、2. 题目…），",
                 "    稿件内部自己的标题依次降一级（1.1 / 1.1.1），编号在每个章内从 1. 重新开始；",
                 "    自动生成封面、目录、分章清单，参考文献跨文件去重并重新编号。",
+                "  · 封面：照 23 级 Case 报告样式（校徽 + “2023级××组PBL学习 / 学习报告 / Case x：…”",
+                "    + Tutor / PBL小组主席 / 书记 / 成员），信息都在「② 合并四章」里填，可换校徽图片。",
                 "  · 表格自动适配：按内容取自然宽度、或在版心内折行、或整体等比缩放，不会超出正文宽度；",
-                "    正文 [1] 自动变成上标引用（GB/T 7714—2015 顺序编码制）。",
+                "  · 引用：正文 [1]、[2-3] 直接排成上标编号（GB/T 7714—2015 顺序编码制），",
+                "    不依赖两遍编译，所以不会再出现 [?,?,?]。",
                 "",
                 "二、三步上手",
                 "  1. 只转自己那份：「① 单份转换」→ 添加 Word 文件 → 开始转换 → 结果在输出目录下各自子文件夹。",
@@ -487,6 +543,17 @@ def launch_gui(preload=None) -> int:
             except queue.Empty:
                 pass
             self.after(110, self._poll)
+
+        def _on_tab_change(self, _event=None):
+            """② 合并模式才显示“生成大报告”按钮。"""
+            try:
+                idx = self.nb.index(self.nb.select())
+            except Exception:  # noqa: BLE001
+                return
+            if idx == 1:
+                self.btn_ch.pack(side="right", padx=(0, 12), before=self.progress)
+            else:
+                self.btn_ch.pack_forget()
 
         def _set_busy(self, busy):
             self.busy = busy
@@ -618,6 +685,14 @@ def launch_gui(preload=None) -> int:
                 entry.delete(0, "end")
                 entry.insert(0, d)
 
+        def pick_cover_logo(self):
+            p = filedialog.askopenfilename(
+                title="选择封面校徽图片",
+                filetypes=[("图片", "*.png *.jpg *.jpeg *.bmp"), ("所有文件", "*.*")])
+            if p:
+                self.e_cov_logo.delete(0, "end")
+                self.e_cov_logo.insert(0, p)
+
         # ---------------- 单份：执行 ---------------- #
         def do_single(self):
             if not self.single_files:
@@ -739,15 +814,26 @@ def launch_gui(preload=None) -> int:
             out = self.e_ch_out.get().strip() or default_outdir()
             want_pdf = self.v_pdf2.get()
             open_after = self.v_open2.get()     # Tk 变量只能在主线程读
-            title = self.e_title.get().strip() or "PBL 大报告"
-            author = self.e_author.get().strip()
-            date = self.e_date.get().strip()
+            cover = {
+                "line1": self.e_cov_line1.get().strip(),
+                "line2": self.e_cov_line2.get().strip() or "学习报告",
+                "case": self.e_cov_case.get().strip(),
+                "tutor": self.e_cov_tutor.get().strip(),
+                "chair": self.e_cov_chair.get().strip(),
+                "secretary": self.e_cov_sec.get().strip(),
+                "members": self.e_cov_members.get().strip(),
+                "date": self.e_cov_date.get().strip(),
+                "logo": self.e_cov_logo.get().strip(),
+            }
+            title = cover["line1"] or "PBL 大报告"
+            author = cover["line1"]
+            date = cover["date"]
 
             def job():
                 os.makedirs(out, exist_ok=True)
                 self.q.put(("status", "正在合成四章大报告…"))
                 info = convert_chapters(items, out, title=title, author=author, date=date,
-                                        compile_pdf=want_pdf, log=self.log)
+                                        compile_pdf=want_pdf, log=self.log, cover=cover)
                 self.log("  .tex → %s" % info["tex"])
                 self.log("  分章清单 → %s" % info["manifest"])
                 if info.get("pdf"):
@@ -814,6 +900,10 @@ if __name__ == "__main__":
             pass
         raise
     sys.exit(code)
+
+
+
+
 
 
 

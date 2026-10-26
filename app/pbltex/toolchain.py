@@ -88,8 +88,23 @@ def _is_miktex() -> bool:
     return is_mk
 
 
-def compile_tex(tex_path, log=None, passes=2, timeout=300) -> str:
-    """编译 tex，返回 pdf 路径；失败返回空串。"""
+def _needs_rerun(tex_path) -> bool:
+    """看 .log 里是否还提示要再跑一遍（目录页码、交叉引用）。"""
+    logf = os.path.splitext(tex_path)[0] + ".log"
+    try:
+        with open(logf, "r", encoding="utf-8", errors="replace") as fh:
+            txt = fh.read()
+    except OSError:
+        return False
+    return ("Rerun to get" in txt) or ("Label(s) may have changed" in txt)
+
+
+def compile_tex(tex_path, log=None, passes=2, max_passes=3, timeout=300) -> str:
+    """编译 tex，返回 pdf 路径；失败返回空串。
+
+    至少跑 `passes` 遍；若 .log 仍提示 Rerun（目录页码没稳定），最多补到 max_passes 遍。
+    正文引用是直接写的上标编号，不依赖两遍解析，所以只跑一遍也不会出现 [?,?,?]。
+    """
     log = log or (lambda *_: None)
     exe = find_xelatex()
     if not exe:
@@ -110,23 +125,35 @@ def compile_tex(tex_path, log=None, passes=2, timeout=300) -> str:
         base_cmd.append("--enable-installer")   # 允许 MiKTeX 自动补装宏包
 
     ok_tail = ""
-    for n in range(1, passes + 1):
+    last_ok = False
+    n = 0
+    while n < max_passes:
+        n += 1
         log("  xelatex 第 %d 遍…" % n)
         try:
             r = subprocess.run(base_cmd + [name], cwd=workdir, capture_output=True,
                                timeout=timeout, creationflags=CREATE_NO_WINDOW)
         except subprocess.TimeoutExpired:
             log("  [失败] xelatex 超时（>%d 秒）" % timeout)
-            return ""
+            break
         except Exception as exc:  # noqa: BLE001
             log("  [失败] 无法运行 xelatex：%s" % exc)
-            return ""
+            break
         out = (r.stdout or b"").decode("utf-8", "replace") + (r.stderr or b"").decode("utf-8", "replace")
         ok_tail = out
+        last_ok = (r.returncode == 0)
+        if n >= passes and not _needs_rerun(tex_path):
+            break
+        if n >= max_passes:
+            break
 
-    if os.path.exists(pdf):
+    if last_ok and os.path.exists(pdf):
+        if _needs_rerun(tex_path):
+            log("  [提示] 目录页码可能还没稳定，建议再编译一次")
         log("  PDF 已生成：%s" % os.path.basename(pdf))
         return pdf
+    if os.path.exists(pdf):
+        log("  [警告] 最后一遍 xelatex 没跑完，PDF 来自第 %d 遍，目录/页码可能不准" % max(n - 1, 1))
 
     # 失败：把关键报错提出来
     errs = []

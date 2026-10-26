@@ -33,6 +33,8 @@
 正文小四、1.5 倍行距、首行缩进 2 字符；图题 `图1. 说明（内容）`、表题在表上方；
 **表格宽度自适应**（自然宽度 / `tabularx` 折行 / `\resizebox` 缩放，保证不超出正文）；
 参考文献 GB/T 7714—2015 顺序编码制，跨文件去重、正文引用自动重编号。
+**封面**照 23 级 Case 报告样式（校徽 + `2023级××组PBL学习` / `学习报告` / `Case x：…` + Tutor / 主席 / 书记 / 成员），
+在 GUI 或计划 JSON 的 `cover` 里填；**引用直接写上标编号**，不依赖两遍编译，不会出现 `[?,?,?]`。
 
 ## 目录结构
 
@@ -83,7 +85,11 @@ python scripts/chapters_docx2tex.py 提交目录 -o 大报告.tex --auto --compi
     {"title": "重大问题", "files": ["提交/02_机制.docx", "提交/03_因果.docx"]},
     {"title": "次要问题", "files": ["提交/04_鉴别.docx"]},
     {"title": "机制图", "figures": [{"path": "pics/mech1.png", "caption": "三条链机制全景"}]}
-  ]
+  ],
+  "cover": {"line1": "2023级11组PBL学习", "line2": "学习报告", "case": "Case 1：难缠的脖子痛",
+            "tutor": "马凯歌", "chair": "朱俊铭", "secretary": "郭育恒",
+            "members": ["叶瑞林", "张欣仪", "韩曦", "任欣萌", "王思源", "于子轩", "牛海华", "韩畅"],
+            "logo": "assets/cover_logo.png"}
 }
 ```
 
