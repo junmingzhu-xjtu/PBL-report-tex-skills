@@ -20,7 +20,7 @@ import time
 import traceback
 
 APP_NAME = "PBL 大报告生成器"
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.4.0"
 LOG_FILE = os.path.join(tempfile.gettempdir(), "pbl_report_gui.log")
 
 
@@ -381,7 +381,7 @@ def launch_gui(preload=None) -> int:
             self.e_cov_line2.insert(0, "学习报告")
             self.e_cov_line2.grid(row=0, column=3, sticky="we", padx=6, pady=2)
 
-            ttk.Label(cg, text="Case 标题：").grid(row=1, column=0, sticky="w")
+            ttk.Label(cg, text="Case（作者填）：").grid(row=1, column=0, sticky="w")
             self.e_cov_case = ttk.Entry(cg, width=26)
             self.e_cov_case.insert(0, "Case 1：难缠的脖子痛")
             self.e_cov_case.grid(row=1, column=1, sticky="we", padx=6, pady=2)
@@ -409,7 +409,7 @@ def launch_gui(preload=None) -> int:
             self.e_cov_members = ttk.Entry(cg, width=26)
             self.e_cov_members.insert(0, "叶瑞林 张欣仪 韩曦 任欣萌 王思源 于子轩 牛海华 韩畅")
             self.e_cov_members.grid(row=3, column=1, columnspan=3, sticky="we", padx=6, pady=2)
-            ttk.Label(cg, text="（空格/逗号分隔；主席与书记不必重复写）", style="Sub.TLabel").grid(
+            ttk.Label(cg, text="（组员空格/逗号分隔，主席与书记不必重复写；Case 只填名称会自动补“Case：”）", style="Sub.TLabel").grid(
                 row=4, column=1, columnspan=3, sticky="w", padx=6)
             cg.columnconfigure(1, weight=1)
             cg.columnconfigure(3, weight=1)
@@ -471,8 +471,9 @@ def launch_gui(preload=None) -> int:
                 "    每人的一份稿件 = 章里的一个一级标题（1. 题目、2. 题目…），",
                 "    稿件内部自己的标题依次降一级（1.1 / 1.1.1），编号在每个章内从 1. 重新开始；",
                 "    自动生成封面、目录、分章清单，参考文献跨文件去重并重新编号。",
-                "  · 封面：照 23 级 Case 报告样式（校徽 + “2023级××组PBL学习 / 学习报告 / Case x：…”",
-                "    + Tutor / PBL小组主席 / 书记 / 成员），信息都在「② 合并四章」里填，可换校徽图片。",
+                "  · 封面：照 23 级 Case 报告样式（校徽 + “2023级××组PBL学习 / 学习报告 / Case：…”",
+                "    + Tutor / PBL小组主席 / 书记 / 成员）；字号：首行一号、次行小一、Case 小初、",
+                "    小组构成三号；标题行距 3 倍、小组构成 1.5 倍；Case 名由作者填（只填名称会自动补“Case：”）。",
                 "  · 表格自动适配：按内容取自然宽度、或在版心内折行、或整体等比缩放，不会超出正文宽度；",
                 "  · 引用：正文 [1]、[2-3] 直接排成上标编号（GB/T 7714—2015 顺序编码制），",
                 "    不依赖两遍编译，所以不会再出现 [?,?,?]。",
@@ -900,6 +901,8 @@ if __name__ == "__main__":
             pass
         raise
     sys.exit(code)
+
+
 
 
 

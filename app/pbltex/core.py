@@ -619,7 +619,17 @@ def _split_names(members):
 
 
 def cover_tex(cover, figdir, log=None) -> str:
-    """生成 titlepage。cover 为 None / 空则返回空串（调用方退回 \\maketitle）。"""
+    """生成 titlepage。cover 为 None / 空则返回空串（调用方退回 \\maketitle）。
+
+    版式（老师/同学的约定）：
+      校徽
+      2023级11组PBL学习   一号（26pt）居中，行距 3 倍
+      学习报告            小一（24pt）居中，行距 3 倍
+      Case：xxx           小初（36pt）居中，行距 3 倍
+      （空一行，小初的一行高度）
+      Tutor / 主席 / 书记 / 成员   三号（16pt），行距 1.5
+      日期（页脚）
+    """
     if not cover:
         return ""
     log = log or (lambda *_: None)
@@ -636,6 +646,11 @@ def cover_tex(cover, figdir, log=None) -> str:
     # 主席/书记若混在成员里，先从成员中剔除（“其余为组员”）
     members = [m for m in members if m not in (chair, secretary)]
 
+    # “Case：名称”是约定格式：作者只填名称时自动补前缀
+    if case and not re.match(r"^(case|cause)\b", case, re.I) \
+            and "：" not in case and ":" not in case:
+        case = "Case：" + case
+
     logo_rel = ""
     logo = (g.get("logo") or "").strip()
     if logo:
@@ -650,45 +665,62 @@ def cover_tex(cover, figdir, log=None) -> str:
         else:
             log("  [警告] 找不到封面图片：%s" % logo)
 
+    def fs(size, multiple):
+        """字号 + 行距（行距 = 倍数 × 字号）。"""
+        return r"\fontsize{%gpt}{%gpt}\selectfont" % (size, size * multiple)
+
     out = [r"\begin{titlepage}", r"  \thispagestyle{empty}", r"  \begin{center}"]
     if logo_rel:
-        out.append(r"    \includegraphics[width=0.62\linewidth]{%s}\\[1.6em]" % logo_rel)
-    if line1:
-        out.append(r"    {\CJKsetecglue{}\songbold\zihao{1} %s}\\[0.35em]" % esc(line1))
-    if line2:
-        out.append(r"    {\CJKsetecglue{}\songbold\fontsize{24pt}{30pt}\selectfont %s}\\[1.5em]" % esc(line2))
-    if case:
-        out.append(r"    \begin{minipage}{0.92\linewidth}\centering"
-                   r"{\CJKsetecglue{}\bfseries\fontsize{30pt}{36pt}\selectfont %s}\end{minipage}" % esc(case))
-    out.append(r"  \end{center}")
-    out.append(r"  \vspace{2.0em}")
+        out.append(r"    \includegraphics[width=0.60\linewidth]{%s}\par" % logo_rel)
+        out.append(r"    \vspace{2.2em}")
 
-    fs = r"\fontsize{16pt}{21pt}\selectfont"
+    # ---- 标题三行：一号(26) / 小一(24) / 小初(36)，行距 3 倍 ----
+    # 段与段之间的基线距离 = 3 × 字号；\vspace 扣掉下一行的字高
+    def title_block(size, text, kind):
+        return r"    {\CJKsetecglue{}%s%s %s\par}" % (kind, fs(size, 1.2), esc(text))
+
+    if line1:
+        out.append(title_block(26, line1, r"\songbold"))
+    if line2:
+        if line1:
+            out.append(r"    \vspace{%gpt}" % (3 * 26 - 0.85 * 24))
+        out.append(title_block(24, line2, r"\songbold"))
+    if case:
+        if line1 or line2:
+            out.append(r"    \vspace{%gpt}" % (3 * 24 - 0.85 * 36))
+        out.append(r"    \begin{minipage}{0.94\linewidth}\centering")
+        out.append(r"      " + title_block(36, case, r"\bfseries").strip())
+        out.append(r"    \end{minipage}")
+    out.append(r"  \end{center}")
+
+    # ---- 空一行（小初字号的整整一行）----
+    out.append(r"  \vspace{%gpt}" % (36 * 1.2))
+
+    # ---- 小组构成：三号(16pt)，行距 1.5 ----
+    info_fs = fs(16, 1.5)
     rows = []
     if tutor:
-        rows.append(r"    \hspace{2.0em}{%s Tutor：%s}\par" % (fs, esc(tutor)))
+        rows.append(r"\hspace{2.0em}Tutor：%s" % esc(tutor))
     if chair:
-        rows.append(r"    \hspace{2.0em}{%s PBL小组主席：%s}\par" % (fs, esc(chair)))
+        rows.append(r"\hspace{2.0em}PBL小组主席：%s" % esc(chair))
     if secretary:
-        rows.append(r"    \hspace{2.0em}{%s PBL小组书记：%s}\par" % (fs, esc(secretary)))
+        rows.append(r"\hspace{2.0em}PBL小组书记：%s" % esc(secretary))
     if members:
         chunks = [members[i:i + COVER_MEMBER_PER_LINE]
                   for i in range(0, len(members), COVER_MEMBER_PER_LINE)]
-        first = r"    \hspace{2.0em}{%s PBL小组成员：%s}\par" % (
-            fs, r"\hspace{0.85em}".join(esc(m) for m in chunks[0]))
-        rows.append(first)
-        pad = r"\hspace{2.0em}\hspace*{6.3em}"      # 与“PBL小组成员：”后的姓名对齐
+        rows.append(r"\hspace{2.0em}PBL小组成员：%s"
+                    % r"\hspace{0.85em}".join(esc(m) for m in chunks[0]))
         for ch in chunks[1:]:
-            rows.append(r"    %s{%s %s}\par" % (pad, fs, r"\hspace{0.85em}".join(esc(m) for m in ch)))
+            rows.append(r"\hspace*{11.2em}%s" % r"\hspace{0.85em}".join(esc(m) for m in ch))
     if rows:
         out.append(r"  \begin{flushleft}")
-        out.extend(rows)
+        out.append(r"    {%s %s\par}" % (info_fs, (r"\\" + "\n    ").join(rows)))
         out.append(r"  \end{flushleft}")
 
     if date:
         out.append(r"  \vfill")
-        out.append(r"  \begin{center}{%s %s}\end{center}"
-                   % (r"\fontsize{14pt}{18pt}\selectfont", esc(date)))
+        out.append(r"  \begin{center}{\CJKsetecglue{}%s %s\par}\end{center}"
+                   % (fs(16, 1.5), esc(date)))
     out.append(r"\end{titlepage}")
     return "\n".join(out)
 
@@ -1162,3 +1194,4 @@ def guess_chapter(docx_path) -> int:
     if case > 0:
         return 0
     return 1
+

@@ -103,23 +103,27 @@ python scripts\chapters_docx2tex.py 提交目录 -o 大报告.tex --auto --compi
 - 机制图：全组画的图，放 `figures`；
 - 判不出来默认**重大问题**；`--auto` 只是初猜，**必须人工核对**一遍。
 
-### 封面（照 23 级 Case 报告样式）
+### 封面（照 23 级 Case 报告样式，版式已按老师要求定死）
 
 ```
-[校徽]                     ← cover.logo（可留空）
-2023级11组PBL学习           ← cover.line1（宋体 一号 加粗居中，数字与汉字之间不留空格）
-学习报告                    ← cover.line2（宋体 24pt 加粗居中）
-Case 1：难缠的脖子痛        ← cover.case（30pt 加粗居中）
+[校徽]                          ← cover.logo（可留空；默认 assets/cover_logo.png）
+2023级11组PBL学习                ← cover.line1   一号 26pt · 加粗 · 居中 · 行距 3 倍
+学习报告                         ← cover.line2   小一 24pt · 加粗 · 居中 · 行距 3 倍
+Case：难缠的脖子痛               ← cover.case    小初 36pt · 加粗 · 居中 · 行距 3 倍
+（空一行，小初字号的整整一行）
 
-  Tutor：马凯歌             ← cover.tutor
-  PBL小组主席：朱俊铭        ← cover.chair
-  PBL小组书记：郭育恒        ← cover.secretary
-  PBL小组成员：……          ← cover.members（主席/书记会自动从成员里剔除；每行 4 个）
-                                    cover.date（页脚居中）
+  Tutor：马凯歌                  ← cover.tutor
+  PBL小组主席：朱俊铭             ← cover.chair     三号 16pt · 行距 1.5
+  PBL小组书记：郭育恒             ← cover.secretary 三号 16pt · 行距 1.5
+  PBL小组成员：叶瑞林 …（每行 4 人，续行与第一行姓名对齐）
+                                  cover.date  页脚居中（三号）
 ```
 
-- 成员写全组名单即可，主席、书记不必重复写（程序会去重）；
-- 校徽放 `assets/cover_logo.png`（仓库里带一张西安交大红标），也可以随时换成别的图片。
+- **Case 名由作者填**：只填名称（如“难缠的脖子痛”）会自动补成 `Case：难缠的脖子痛`；
+  想保留编号就直接填“Case 1：难缠的脖子痛”；
+- 成员写全组名单即可，主席、书记不必重复写（程序会自动去重）；
+- 校徽放 `assets/cover_logo.png`（仓库里带一张西安交大红标），也可以随时换成别的图片；
+- 数字与汉字之间不留空隙（`\CJKsetecglue{}`），标题用伪粗体宋体（SimSun 无粗体字重）。
 
 ## 四、脚本参数速查
 
