@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """PBL 大报告生成器 —— 图形界面（双击即用）
 
 三种运行方式：
@@ -798,7 +798,7 @@ def launch_gui(preload=None) -> int:
                     import docx
                     doc = docx.Document(path)
                     for par in doc.paragraphs[:6]:
-                        t = (par.text or "").strip()
+                        t = " ".join((par.text or "").split())
                         if t:
                             title = t[:40]
                             break
