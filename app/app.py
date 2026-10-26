@@ -20,7 +20,7 @@ import time
 import traceback
 
 APP_NAME = "PBL 大报告生成器"
-APP_VERSION = "1.4.0"
+APP_VERSION = "1.4.1"
 LOG_FILE = os.path.join(tempfile.gettempdir(), "pbl_report_gui.log")
 
 
@@ -38,15 +38,35 @@ def exe_dir() -> str:
     return os.path.dirname(os.path.abspath(__file__))
 
 
-def default_outdir() -> str:
-    d = os.path.join(exe_dir(), "生成结果")
+def _shell_folder(csidl: int) -> str:
+    """取 Windows 的“桌面 / 文档”真实路径（中文系统叫“桌面”也能拿到）。"""
+    if os.name != "nt":
+        return ""
     try:
-        os.makedirs(d, exist_ok=True)
-        return d
-    except OSError:
-        d = os.path.join(os.path.expanduser("~"), "Desktop", "PBL生成结果")
-        os.makedirs(d, exist_ok=True)
-        return d
+        import ctypes
+        buf = ctypes.create_unicode_buffer(260)
+        ctypes.windll.shell32.SHGetFolderPathW(None, csidl, None, 0, buf)
+        return buf.value or ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def default_outdir() -> str:
+    """默认输出到桌面：绝不写进程序文件夹（那里常常没有写权限）。"""
+    cands = []
+    for csidl in (0x0010, 0x0005):            # 桌面 / 我的文档
+        p = _shell_folder(csidl)
+        if p:
+            cands.append(os.path.join(p, "PBL生成结果"))
+    cands.append(os.path.join(os.path.expanduser("~"), "Desktop", "PBL生成结果"))
+    cands.append(os.path.join(tempfile.gettempdir(), "PBL生成结果"))
+    for d in cands:
+        try:
+            os.makedirs(d, exist_ok=True)
+            return d
+        except OSError:
+            continue
+    return tempfile.mkdtemp(prefix="PBL生成结果_")
 
 
 def default_cover_logo() -> str:
@@ -901,6 +921,7 @@ if __name__ == "__main__":
             pass
         raise
     sys.exit(code)
+
 
 
 

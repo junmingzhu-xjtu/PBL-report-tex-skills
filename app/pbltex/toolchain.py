@@ -99,11 +99,42 @@ def _needs_rerun(tex_path) -> bool:
     return ("Rerun to get" in txt) or ("Label(s) may have changed" in txt)
 
 
+def _log_errors(tex_path, limit=8):
+    """从 xelatex 的 .log 里抠报错（比抓 stdout 可靠）。"""
+    logf = os.path.splitext(tex_path)[0] + ".log"
+    try:
+        with open(logf, "r", encoding="utf-8", errors="replace") as fh:
+            lines = fh.readlines()
+    except OSError:
+        return []
+    out = []
+    for i, line in enumerate(lines):
+        s = line.rstrip("\n")
+        low = s.lower()
+        if s.startswith("!") or "emergency stop" in low or ("not found" in low and (".sty" in low or ".cls" in low or "font" in low)):
+            out.append(s.strip())
+            for nxt in lines[i + 1:i + 4]:
+                t = nxt.rstrip("\n")
+                if t.startswith("l."):
+                    out.append(t.strip())
+                    break
+        if len(out) >= limit:
+            break
+    if not out:                       # 没有以 ! 开头的，就把最后几行有用的捞出来
+        for line in lines[-40:]:
+            s = line.rstrip("\n")
+            if s.strip() and not s.startswith(("(", ")", "[")):
+                out.append(s.strip()[:160])
+        out = out[-6:]
+    return out
+
+
 def compile_tex(tex_path, log=None, passes=2, max_passes=3, timeout=300) -> str:
     """编译 tex，返回 pdf 路径；失败返回空串。
 
     至少跑 `passes` 遍；若 .log 仍提示 Rerun（目录页码没稳定），最多补到 max_passes 遍。
     正文引用是直接写的上标编号，不依赖两遍解析，所以只跑一遍也不会出现 [?,?,?]。
+    只要 PDF 比 .tex 新，就算 xelatex 返回码非 0 也认为成功（MiKTeX 偶尔这么抽风）。
     """
     log = log or (lambda *_: None)
     exe = find_xelatex()
@@ -114,11 +145,15 @@ def compile_tex(tex_path, log=None, passes=2, max_passes=3, timeout=300) -> str:
     workdir = os.path.dirname(os.path.abspath(tex_path)) or "."
     name = os.path.basename(tex_path)
     pdf = os.path.splitext(tex_path)[0] + ".pdf"
+    try:
+        tex_mtime = os.path.getmtime(tex_path)
+    except OSError:
+        tex_mtime = 0
     if os.path.exists(pdf):
         try:
             os.remove(pdf)
-        except OSError:
-            pass
+        except OSError as exc:
+            log("  [警告] 删不掉旧 PDF（%s）——若编译报错，请换个输出目录" % exc.strerror)
 
     base_cmd = [exe, "-interaction=nonstopmode", "-halt-on-error"]
     if _is_miktex():
@@ -147,28 +182,38 @@ def compile_tex(tex_path, log=None, passes=2, max_passes=3, timeout=300) -> str:
         if n >= max_passes:
             break
 
-    if last_ok and os.path.exists(pdf):
+    # 只要 PDF 比 .tex 新，就算成功（MiKTeX 偶尔返回码非 0，但 PDF 是好的）
+    pdf_fresh = False
+    if os.path.exists(pdf):
+        try:
+            pdf_fresh = os.path.getmtime(pdf) >= tex_mtime - 1
+        except OSError:
+            pdf_fresh = True
+
+    if pdf_fresh:
+        if not last_ok:
+            log("  [提示] xelatex 返回码非 0，但 PDF 已生成，按成功处理")
         if _needs_rerun(tex_path):
             log("  [提示] 目录页码可能还没稳定，建议再编译一次")
         log("  PDF 已生成：%s" % os.path.basename(pdf))
         return pdf
-    if os.path.exists(pdf):
-        log("  [警告] 最后一遍 xelatex 没跑完，PDF 来自第 %d 遍，目录/页码可能不准" % max(n - 1, 1))
 
-    # 失败：把关键报错提出来
-    errs = []
-    for line in ok_tail.splitlines():
-        s = line.strip()
-        if s.startswith("!") or "not found" in s.lower() or "Emergency stop" in s:
-            errs.append(s)
-        if len(errs) >= 6:
-            break
+    # 失败：优先从 .log 里抠报错（比抓 stdout 可靠）
+    errs = _log_errors(tex_path) or []
+    if not errs:
+        for line in ok_tail.splitlines():
+            s = line.strip()
+            if s.startswith("!") or "not found" in s.lower() or "Emergency stop" in s:
+                errs.append(s)
+            if len(errs) >= 6:
+                break
     if errs:
         log("  [失败] xelatex 报错：")
-        for e in errs:
-            log("     " + e[:160])
+        for e in errs[:8]:
+            log("     " + e[:170])
     else:
-        log("  [失败] 未生成 PDF，详见同目录 .log 文件")
+        log("  [失败] 未生成 PDF；若输出目录在本程序文件夹里，可能没有写权限——"
+            "换个输出目录（如桌面）再试")
     return ""
 
 
