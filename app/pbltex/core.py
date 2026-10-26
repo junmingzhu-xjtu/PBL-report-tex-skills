@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """pbltex.core —— Word 稿件 → LaTeX 的核心转换库
 
 两种产物：
@@ -50,13 +50,24 @@ BULLET_RE = re.compile(r"^[•·●○◦▪‣※\-\*]\s+")
 LABEL_RE = re.compile(r"^([^：:。，,；;\.\(\)（）]{2,14})[：:]\s*(.+)$")
 
 
+def style_name(par) -> str:
+    """段落样式名；WPS 转换的 docx 可能 style=None，这里绝不抛异常。"""
+    st = getattr(par, "style", None)
+    return (getattr(st, "name", "") or "")
+
+
+def style_id(par) -> str:
+    st = getattr(par, "style", None)
+    return (getattr(st, "style_id", "") or "")
+
+
 # --------------------------------------------------------------------------- #
 # docx 元素判定
 # --------------------------------------------------------------------------- #
 def _style_level(par) -> int:
     """Heading 1-9 / 标题 1-9 样式。"""
-    name = (par.style.name or "").strip()
-    sid = (par.style.style_id or "").strip()
+    name = style_name(par).strip()
+    sid = style_id(par).strip()
     m = re.match(r"(?i)^heading\s*(\d)$", name) or re.match(r"(?i)^heading(\d)$", sid)
     if m:
         return int(m.group(1))
@@ -111,6 +122,8 @@ def _clean_heading(txt: str) -> str:
     t = re.sub(r"^\s*\d{1,2}(?:[.．]\d{1,2}){0,3}\s*[、.．]?\s*", "", t)
     # 软换行合并后常留下“ （作者）”“ ，”这类多余空格
     t = re.sub(r"\s+([（()）、，。；：！？“”\"'《》])", r"\1", t)
+    # “情 境 1”这种字间空格（Word 分散对齐留下的）还原成“情境 1”
+    t = re.sub(r"(?<=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])", "", t)
     t = t.rstrip("：: ；;，,、.")
     return t.strip()
 
@@ -153,7 +166,7 @@ def is_list_item(par, txt: str) -> bool:
 
 
 def is_caption(par, txt: str) -> bool:
-    name = (par.style.name or "")
+    name = style_name(par)
     if "caption" in name.lower() or "题注" in name:
         return True
     return bool(CAPTION_RE.match(txt))
@@ -1003,11 +1016,13 @@ def _pick_section_title(lead, content, base):
 def convert_chapters(items, outdir, title="PBL 大报告", author="", date="",
                      tex_name="大报告.tex", compile_pdf=False,
                      margins=DEFAULT_MARGINS, log=None,
-                     chapter_titles=None, chapter_figures=None, cover=None) -> dict:
+                     chapter_titles=None, chapter_figures=None, cover=None,
+                     section_titles=None) -> dict:
     """items: [(docx_path, 章序号 0-3), ...]，按章顺序输出 ctexrep 大报告。
 
     chapter_titles: {章序号: 章标题}，覆盖默认的「案例回顾/重大问题/…」；
-    chapter_figures: {章序号: [(图片路径, 题注), ...]}，用于“机制图”章直接放图。
+    chapter_figures: {章序号: [(图片路径, 题注), ...]}，用于“机制图”章直接放图；
+    section_titles: {docx 路径或文件名: 一级标题}，人工指定（界面里双击可改）。
     """
     log = log or (lambda *_: None)
     os.makedirs(outdir, exist_ok=True)
@@ -1034,6 +1049,7 @@ def convert_chapters(items, outdir, title="PBL 大报告", author="", date="",
         cname = titles.get(idx) or (CHAPTER_NAMES[idx] if 0 <= idx < len(CHAPTER_NAMES) else "其他")
         body.append(r"\chapter{%s}" % esc(cname))
         manifest.append("第%d章 %s" % (seq, cname))
+        used_titles = set()                            # 本章内已用过的一级标题（查重名）
 
         for path in groups[idx]:
             base = os.path.basename(path)
@@ -1063,6 +1079,16 @@ def convert_chapters(items, outdir, title="PBL 大报告", author="", date="",
                 # 稿件的第一个标题被拿去当“一级标题”了，剩下部分要重新归一化，
                 # 否则它下面的二级标题会被当成三级，出现 \section 后直接 \subsubsection 的跳级。
                 content = fix_heading_levels(content[1:])
+
+            # 人工指定的一级标题优先（界面里双击可改）
+            override = (section_titles or {}).get(path) or (section_titles or {}).get(base)
+            if override:
+                sec_title = norm(override)
+            # 同一章里两条一级标题撞名（比如两份情景稿都叫“内分泌系统与疾病”）→ 用文件名兜底
+            elif sec_title in used_titles:
+                stem = os.path.splitext(base)[0]
+                sec_title = stem if stem and stem != sec_title else "%s（%d）" % (sec_title, len(used_titles) + 1)
+            used_titles.add(sec_title)
 
             body.append("%% 稿件：%s　一级标题：%s" % (base, sec_title))
             body.append(r"\section{%s}" % esc(sec_title))
@@ -1199,4 +1225,5 @@ def guess_chapter(docx_path) -> int:
     if case > 0:
         return 0
     return 1
+
 

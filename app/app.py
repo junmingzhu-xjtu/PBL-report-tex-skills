@@ -20,7 +20,7 @@ import time
 import traceback
 
 APP_NAME = "PBL 大报告生成器"
-APP_VERSION = "1.4.3"
+APP_VERSION = "1.5.0"
 LOG_FILE = os.path.join(tempfile.gettempdir(), "pbl_report_gui.log")
 
 
@@ -169,7 +169,8 @@ def run_cli(argv) -> int:
                                     compile_pdf=bool(plan.get("pdf", True)), log=_cli_out,
                                     chapter_titles=titles or None,
                                     chapter_figures=figures or None,
-                                    cover=plan.get("cover"))
+                                    cover=plan.get("cover"),
+                                    section_titles=plan.get("section_titles"))
         except Exception as exc:  # noqa: BLE001
             _cli_out("ERROR %s" % exc)
             _cli_out(traceback.format_exc())
@@ -237,7 +238,7 @@ def launch_gui(preload=None) -> int:
             self.q = queue.Queue()
             self.busy = False
             self.single_files = []
-            self.chapter_items = []      # [(path, chapter_index)]
+            self.chapter_items = []      # [(path, chapter_index, 一级标题覆盖)]
             self.entries = {}
             self.xelatex_ok = None
             self._title_cache = {}
@@ -395,15 +396,16 @@ def launch_gui(preload=None) -> int:
             self.tv_ch.heading("idx", text="#")
             self.tv_ch.heading("name", text="文件名")
             self.tv_ch.heading("chapter", text="章节")
-            self.tv_ch.heading("title", text="检测到的题目")
+            self.tv_ch.heading("title", text="一级标题（双击可改）")
             self.tv_ch.column("idx", width=42, anchor="center")
             self.tv_ch.column("name", width=330, anchor="w")
             self.tv_ch.column("chapter", width=110, anchor="center")
-            self.tv_ch.column("title", width=330, anchor="w")
+            self.tv_ch.column("title", width=360, anchor="w")
             s2 = ttk.Scrollbar(box, command=self.tv_ch.yview)
             self.tv_ch.configure(yscrollcommand=s2.set)
             s2.pack(side="right", fill="y", pady=6, padx=(0, 6))
             self.tv_ch.pack(fill="both", expand=True, padx=6, pady=6)
+            self.tv_ch.bind("<Double-1>", self._edit_section_title)
 
             bar = ttk.Frame(f)
             bar.pack(fill="x", pady=(6, 0))
@@ -788,36 +790,90 @@ def launch_gui(preload=None) -> int:
             self.run_job("单份转换", job)
 
         # ---------------- 四章：文件管理 ---------------- #
+        def _auto_title(self, path):
+            """自动识别的一级标题（缓存），仅用于界面展示。"""
+            if path not in self._title_cache:
+                title = ""
+                try:
+                    import docx
+                    doc = docx.Document(path)
+                    for par in doc.paragraphs[:6]:
+                        t = (par.text or "").strip()
+                        if t:
+                            title = t[:40]
+                            break
+                except Exception:  # noqa: BLE001
+                    title = "(打不开)"
+                self._title_cache[path] = title
+            return self._title_cache.get(path, "")
+
         def _refresh_ch_tree(self):
             sel = list(self.tv_ch.selection())
             for item in self.tv_ch.get_children():
                 self.tv_ch.delete(item)
-            for i, (path, chap) in enumerate(self.chapter_items):
-                if path not in self._title_cache:
-                    title = ""
-                    try:
-                        import docx
-                        doc = docx.Document(path)
-                        for par in doc.paragraphs[:6]:
-                            t = (par.text or "").strip()
-                            if t:
-                                title = t[:40]
-                                break
-                    except Exception:  # noqa: BLE001
-                        title = "(打不开)"
-                    self._title_cache[path] = title
+            for i, row in enumerate(self.chapter_items):
+                path, chap = row[0], row[1]
+                override = row[2] if len(row) > 2 else ""
                 chap_name = CHAPTER_NAMES[chap] if 0 <= chap < len(CHAPTER_NAMES) else "不收录"
+                shown = override or self._auto_title(path)
+                if override:
+                    shown = "✎ " + shown
                 self.tv_ch.insert("", "end", iid=str(i),
-                                  values=(i + 1, os.path.basename(path), chap_name,
-                                          self._title_cache.get(path, "")))
+                                  values=(i + 1, os.path.basename(path), chap_name, shown))
             keep = [x for x in sel if x in self.tv_ch.get_children()]
             if keep:
                 self.tv_ch.selection_set(keep)
 
+        def _edit_section_title(self, event=None):
+            """双击一行，改它在大报告里的一级标题。"""
+            row = self.tv_ch.identify_row(event.y) if event is not None else ""
+            if not row:
+                sel = self.tv_ch.selection()
+                if not sel:
+                    return
+                row = sel[0]
+            i = int(row)
+            if not (0 <= i < len(self.chapter_items)):
+                return
+            path = self.chapter_items[i][0]
+            cur = (self.chapter_items[i][2] if len(self.chapter_items[i]) > 2 else "") \
+                or self._auto_title(path)
+
+            dlg = tk.Toplevel(self)
+            dlg.title("改一级标题")
+            dlg.transient(self)
+            dlg.grab_set()
+            dlg.resizable(True, False)
+            ttk.Label(dlg, text="文件：" + os.path.basename(path), style="Sub.TLabel").pack(
+                anchor="w", padx=12, pady=(10, 2))
+            ttk.Label(dlg, text="在大报告里显示为（留空＝自动识别）：").pack(anchor="w", padx=12)
+            var = tk.StringVar(value=cur)
+            ent = ttk.Entry(dlg, textvariable=var, width=52)
+            ent.pack(fill="x", padx=12, pady=6)
+            ent.focus_set()
+            ent.icursor("end")
+
+            def ok(_e=None):
+                val = var.get().strip()
+                self.chapter_items[i] = (path, self.chapter_items[i][1],
+                                         "" if val == cur and not self.chapter_items[i][2:] else val)
+                dlg.destroy()
+                self._refresh_ch_tree()
+                self.status.configure(text="已更新一级标题")
+
+            bar = ttk.Frame(dlg)
+            bar.pack(fill="x", padx=12, pady=(0, 10))
+            ttk.Button(bar, text="恢复自动识别",
+                       command=lambda: (var.set(""), ok())).pack(side="left")
+            ttk.Button(bar, text="确定", style="Accent.TButton", command=ok).pack(side="right")
+            ttk.Button(bar, text="取消", command=dlg.destroy).pack(side="right", padx=8)
+            ent.bind("<Return>", ok)
+            dlg.bind("<Escape>", lambda _e: dlg.destroy())
+
         def add_chapter_files(self):
             for f in self._pick_docx():
-                if all(f != p for p, _ in self.chapter_items):
-                    self.chapter_items.append((f, -1))
+                if all(f != r[0] for r in self.chapter_items):
+                    self.chapter_items.append((f, -1, ""))
             self._refresh_ch_tree()
 
         def add_chapter_folder(self):
@@ -827,8 +883,8 @@ def launch_gui(preload=None) -> int:
             for name in sorted(os.listdir(d)):
                 if name.lower().endswith(".docx") and not name.startswith("~$"):
                     p = os.path.join(d, name)
-                    if all(p != q for q, _ in self.chapter_items):
-                        self.chapter_items.append((p, -1))
+                    if all(p != r[0] for r in self.chapter_items):
+                        self.chapter_items.append((p, -1, ""))
             self._refresh_ch_tree()
 
         def remove_chapter(self):
@@ -844,7 +900,8 @@ def launch_gui(preload=None) -> int:
                 return
             for i in [int(x) for x in self.tv_ch.selection()]:
                 if 0 <= i < len(self.chapter_items):
-                    self.chapter_items[i] = (self.chapter_items[i][0], chap)
+                    row = self.chapter_items[i]
+                    self.chapter_items[i] = (row[0], chap, row[2] if len(row) > 2 else "")
             self._refresh_ch_tree()
             self.status.configure(text="已更新 %d 行" % len(self.tv_ch.selection()))
 
@@ -853,16 +910,18 @@ def launch_gui(preload=None) -> int:
                 messagebox.showinfo(APP_NAME, "请先添加稿件。")
                 return
             self.log("按题目关键词自动分章：")
-            for i, (path, _) in enumerate(self.chapter_items):
+            for i, row in enumerate(self.chapter_items):
+                path = row[0]
                 chap = guess_chapter(path)
-                self.chapter_items[i] = (path, chap)
+                self.chapter_items[i] = (path, chap, row[2] if len(row) > 2 else "")
                 self.log("  %s → %s" % (os.path.basename(path), CHAPTER_NAMES[chap]))
             self._refresh_ch_tree()
             self.status.configure(text="自动分章完成，请核对后生成")
 
         # ---------------- 四章：执行 ---------------- #
         def do_chapters(self):
-            items = [(p, c) for p, c in self.chapter_items if c >= 0]
+            items = [(r[0], r[1]) for r in self.chapter_items if r[1] >= 0]
+            overrides = {r[0]: r[2] for r in self.chapter_items if len(r) > 2 and r[2]}
             if not items:
                 messagebox.showinfo(APP_NAME, "还没有分配章节的稿件：请添加稿件并用下方章节按钮分配。")
                 return
@@ -888,7 +947,8 @@ def launch_gui(preload=None) -> int:
                 os.makedirs(out, exist_ok=True)
                 self.q.put(("status", "正在合成四章大报告…"))
                 info = convert_chapters(items, out, title=title, author=author, date=date,
-                                        compile_pdf=want_pdf, log=self.log, cover=cover)
+                                        compile_pdf=want_pdf, log=self.log, cover=cover,
+                                        section_titles=overrides)
                 self.log("  .tex → %s" % info["tex"])
                 self.log("  分章清单 → %s" % info["manifest"])
                 if info.get("pdf"):
@@ -955,6 +1015,10 @@ if __name__ == "__main__":
             pass
         raise
     sys.exit(code)
+
+
+
+
 
 
 

@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """chapters_docx2tex.py —— 四章式大报告：多人 Word 稿件 → LaTeX（v2 引擎）
 
 结构（v2 起）：
@@ -93,6 +93,7 @@ def plan_from_json(plan_path):
         "author": plan.get("author", ""),
         "date": plan.get("date", ""),
         "cover": plan.get("cover"),
+        "section_titles": plan.get("section_titles"),
     }
     return items, titles, figures, meta
 
@@ -168,7 +169,8 @@ def main():
         title=meta["title"], author=meta["author"], date=meta["date"],
         tex_name=tex_name, compile_pdf=args.compile,
         chapter_titles=titles, chapter_figures=figures,
-        cover=cover or None, log=_log)
+        cover=cover or None, log=_log,
+        section_titles=meta.get("section_titles"))
 
     _log("")
     _log("生成完成：")
@@ -185,3 +187,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
