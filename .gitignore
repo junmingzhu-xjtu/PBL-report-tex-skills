@@ -7,3 +7,11 @@ figures/
 *.toc
 ~$*
 .DS_Store
+
+# 打包产物（不进仓库，用 app/build.ps1 现打）
+build/
+build_app/
+dist/
+dist_app/
+*.spec
+软件发布/
