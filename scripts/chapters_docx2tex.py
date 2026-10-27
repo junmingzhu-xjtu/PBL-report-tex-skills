@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """chapters_docx2tex.py —— 四章式大报告：多人 Word 稿件 → LaTeX（v2 引擎）
 
 结构（v2 起）：
@@ -99,9 +99,10 @@ def plan_from_json(plan_path):
 
 
 def plan_from_dir(folder):
-    """按关键词自动分章：稿件读题目首行，图片归“机制图”。"""
-    docx = [f for f in sorted(glob.glob(os.path.join(folder, "*.docx")))
-            if not os.path.basename(f).startswith("~$")]
+    """按关键词自动分章：稿件读题目首行，图片归“机制图”。支持 .docx 与 .pdf。"""
+    docx = [f for f in sorted(glob.glob(os.path.join(folder, "*")))
+            if f.lower().endswith((".docx", ".pdf"))
+            and not os.path.basename(f).startswith("~$")]
     imgs = [f for f in sorted(glob.glob(os.path.join(folder, "*")))
             if f.lower().endswith(IMG_EXT)]
     items = []

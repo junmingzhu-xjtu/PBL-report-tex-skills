@@ -417,6 +417,7 @@ PREAMBLE_SINGLE = PREAMBLE_COMMON + r"""\documentclass[UTF8,zihao=-4,a4paper,fon
 %% ===== 页面 =====
 \usepackage[top=__TOP__cm,bottom=__BOT__cm,left=__LEFT__cm,right=__RIGHT__cm]{geometry}
 \usepackage{graphicx}
+\usepackage{float}   %% [H]：图/表紧跟正文，不和题注分家
 \usepackage{booktabs}
 \usepackage{array}
 \usepackage{tabularx}
@@ -474,6 +475,7 @@ PREAMBLE_CHAPTERS = PREAMBLE_COMMON + r"""\documentclass[UTF8,zihao=-4,a4paper,f
 
 \usepackage[top=__TOP__cm,bottom=__BOT__cm,left=__LEFT__cm,right=__RIGHT__cm]{geometry}
 \usepackage{graphicx}
+\usepackage{float}   %% [H]：图/表紧跟正文，不和题注分家
 \usepackage{booktabs}
 \usepackage{array}
 \usepackage{tabularx}
@@ -639,7 +641,7 @@ def table_tex(tbl, caption="", text_width_em=40.0) -> str:
         env_end = r"\end{tabular}}"
         font = ""
 
-    lines = [r"\begin{table}[htbp]", r"  \centering"]
+    lines = [r"\begin{table}[H]", r"  \centering"]
     if font:
         lines.append("  " + font)
     if caption:
@@ -668,7 +670,7 @@ def table_tex(tbl, caption="", text_width_em=40.0) -> str:
 
 
 def figure_tex(paths, caption="", width=0.85) -> str:
-    lines = [r"\begin{figure}[htbp]", r"  \centering"]
+    lines = [r"\begin{figure}[H]", r"  \centering"]
     for p in paths:
         lines.append(r"  \includegraphics[width=%s\linewidth]{%s}" % (("%g" % width), p))
     if caption:
@@ -946,22 +948,31 @@ def _safe_stem(path: str) -> str:
     return stem
 
 
+def load_blocks(path, figdir, prefix="", log=None):
+    """按扩展名分派：.pdf 走 pdfread，其它走 docx。"""
+    if str(path).lower().endswith(".pdf"):
+        from .pdfread import pdf_blocks
+        return pdf_blocks(path, figdir, prefix=prefix, log=log)
+    return collect(Document(path), figdir, prefix=prefix, log=log)
+
 def convert_single(docx_path, outdir, title="", author="", compile_pdf=False,
-                   margins=DEFAULT_MARGINS, log=None) -> dict:
+                   margins=DEFAULT_MARGINS, log=None, layouts=False) -> dict:
     """单份 Word → LaTeX（+ 可选 PDF）。输出到 outdir 下同名子文件夹。"""
     log = log or (lambda *_: None)
     if not os.path.isfile(docx_path):
         raise FileNotFoundError("找不到文件：%s" % docx_path)
-    if docx_path.lower().endswith(".doc"):
+    lower = str(docx_path).lower()
+    if lower.endswith(".doc"):
         raise ValueError("不支持 .doc 旧格式，请先在 Word 里“另存为” .docx")
+    if not lower.endswith((".docx", ".pdf")):
+        raise ValueError("只支持 .docx 或 .pdf：%s" % os.path.basename(str(docx_path)))
 
     stem = _safe_stem(docx_path)
     workdir = os.path.join(outdir, stem)
     figdir = os.path.join(workdir, "figures")
     os.makedirs(figdir, exist_ok=True)
 
-    doc = Document(docx_path)
-    blocks = collect(doc, figdir, prefix="", log=log)
+    blocks = load_blocks(docx_path, figdir, log=log)
     lead, body, refs = split_lead_and_refs(blocks)
 
     # 稿件第一个东西就是一级标题 → 拿它当文章标题，剩下部分重新归一化
@@ -1000,17 +1011,18 @@ def convert_single(docx_path, outdir, title="", author="", compile_pdf=False,
 
     parts = [preamble_single(margins), "\n".join(head), "", "\n\n".join(body_tex)]
 
+    bib_lines = []
     if refs:
-        bib = [r"\begin{thebibliography}{99}"]
+        bib_lines = [r"\begin{thebibliography}{99}"]
         for k, r in enumerate(refs, 1):
             text = REF_ITEM_RE.sub("", r)
-            bib.append(r"  \bibitem{ref%d} %s" % (k, esc(norm(text))))
-        bib.append(r"\end{thebibliography}")
-        parts.append("\n".join(bib))
+            bib_lines.append(r"  \bibitem{ref%d} %s" % (k, esc(norm(text))))
+        bib_lines.append(r"\end{thebibliography}")
+        parts.append("\n".join(bib_lines))
 
     parts.append(r"\end{document}")
 
-    tex_path = os.path.join(workdir, stem + ".tex")
+    tex_path = os.path.join(workdir, stem + "-提交版.tex")
     with open(tex_path, "w", encoding="utf-8") as fh:
         fh.write("\n".join(parts) + "\n")
 
@@ -1022,10 +1034,26 @@ def convert_single(docx_path, outdir, title="", author="", compile_pdf=False,
         "refs": len(refs),
         "figures": sum(len(b[1]) for b in body if b[0] == "img"),
         "pdf": "",
+        "layout_tex": "",
+        "layout_pdf": "",
     }
     if compile_pdf:
         from .toolchain import compile_tex
         info["pdf"] = compile_tex(tex_path, log=log)
+
+    # ---------------- 排版版：交给大报告用（标题=1.，稿内标题降一级） ----------------
+    if layouts:
+        ctx2 = RenderCtx(heading_map={1: 2, 2: 3, 3: 0}, cite_map=cite_map, log=log)
+        body2 = render_blocks(body, ctx2)
+        # 排版版：没有封面块，直接 1. 题目 → 1.1 → 1.1.1，就是放进大报告里的样子
+        frag = [r"\section{%s}" % esc(title)] + body2 + bib_lines
+        layout_tex = os.path.join(workdir, stem + "-排版版.tex")
+        with open(layout_tex, "w", encoding="utf-8") as fh:
+            fh.write(preamble_single(margins) + "\n\n".join(frag) + "\n\n\\end{document}\n")
+        info["layout_tex"] = layout_tex
+        if compile_pdf:
+            from .toolchain import compile_tex as _ct
+            info["layout_pdf"] = _ct(layout_tex, log=log)
     return info
 
 
@@ -1121,13 +1149,11 @@ def convert_chapters(items, outdir, title="PBL 大报告", author="", date="",
                 continue
             prefix = re.sub(r"[^\w\u4e00-\u9fff]+", "", os.path.splitext(base)[0])[:10] + "_"
             try:
-                doc = Document(path)
+                blocks = load_blocks(path, figdir, prefix=prefix, log=log)
             except Exception as exc:  # noqa: BLE001
                 warned.append(base)
                 log("  [跳过] %s 打不开（%s）" % (base, exc))
                 continue
-
-            blocks = collect(doc, figdir, prefix=prefix, log=log)
             lead, content, file_refs = split_lead_and_refs(blocks)
             content = fix_heading_levels(group_label_items(content))
 
@@ -1252,6 +1278,21 @@ MINOR_KEYS = ["鉴别", "概念", "定义", "分类", "补充", "细节", "名�
 CASE_KEYS = ["案例回顾", "病史", "现病史", "查体", "病例摘要", "主诉", "影像学表现"]
 
 
+def pdf_head(pdf_path, max_lines=6) -> str:
+    """PDF 的前几行文字（用于猜章节 / 界面显示标题），不渲染图片。"""
+    try:
+        import pdfplumber
+        with pdfplumber.open(pdf_path) as pdf:
+            for pg in pdf.pages[:1]:
+                for ln in pg.extract_text_lines(strip=True):
+                    t = norm("".join(c["text"] for c in ln["chars"]))
+                    if t:
+                        return t
+    except Exception:  # noqa: BLE001
+        pass
+    return ""
+
+
 def guess_chapter(docx_path) -> int:
     """0 案例回顾 / 1 重大问题 / 2 次要问题。
 
@@ -1260,12 +1301,15 @@ def guess_chapter(docx_path) -> int:
     name = os.path.basename(docx_path)
     head = ""
     try:
-        doc = Document(docx_path)
-        for par in doc.paragraphs[:6]:
-            t = norm(par.text)
-            if t:
-                head = t
-                break
+        if str(docx_path).lower().endswith(".pdf"):
+            head = pdf_head(docx_path)
+        else:
+            doc = Document(docx_path)
+            for par in doc.paragraphs[:6]:
+                t = norm(par.text)
+                if t:
+                    head = t
+                    break
     except Exception:  # noqa: BLE001
         pass
     text = name + " " + head
@@ -1281,5 +1325,10 @@ def guess_chapter(docx_path) -> int:
     if case > 0:
         return 0
     return 1
+
+
+
+
+
 
 

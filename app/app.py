@@ -20,7 +20,7 @@ import time
 import traceback
 
 APP_NAME = "PBL 大报告生成器"
-APP_VERSION = "1.5.2"
+APP_VERSION = "1.6.0"
 LOG_FILE = os.path.join(tempfile.gettempdir(), "pbl_report_gui.log")
 
 
@@ -121,12 +121,14 @@ def run_cli(argv) -> int:
         if "--no-pdf" in argv:
             pdf = False
         try:
-            info = convert_single(src, out, compile_pdf=pdf, log=_cli_out)
+            info = convert_single(src, out, compile_pdf=pdf, log=_cli_out,
+                                  layouts=(pdf and "--no-layout" not in argv))
         except Exception as exc:  # noqa: BLE001
             _cli_out("ERROR %s" % exc)
             _cli_out(traceback.format_exc())
             return 2
-        _cli_out("DONE tex=%s pdf=%s" % (info["tex"], info["pdf"]))
+        _cli_out("DONE tex=%s pdf=%s layout_pdf=%s"
+                 % (info["tex"], info["pdf"], info.get("layout_pdf", "")))
         return 0 if (not pdf or info["pdf"]) else 1
 
     if argv[0] == "--cli-chapters":
@@ -300,7 +302,7 @@ def launch_gui(preload=None) -> int:
             top = ttk.Frame(self)
             top.pack(side="top", fill="x", padx=16, pady=(12, 6))
             ttk.Label(top, text=APP_NAME, style="Title.TLabel").pack(side="left")
-            ttk.Label(top, text="Word 稿件 → 规范 LaTeX / PDF　·　四章式大报告一键合成",
+            ttk.Label(top, text="Word / PDF 稿件 → 规范 LaTeX / PDF　·　四章式大报告一键合成",
                       style="Sub.TLabel").pack(side="left", padx=(12, 0), pady=(6, 0))
             self.env_badge = tk.Label(top, text="正在检测 LaTeX 环境…", font=("Microsoft YaHei UI", 9),
                                       fg=MUTED, bg="#f6f7f9")
@@ -377,7 +379,7 @@ def launch_gui(preload=None) -> int:
             row2.pack(fill="x", padx=8, pady=(2, 10))
             self.v_pdf = tk.BooleanVar(value=True)
             self.v_open = tk.BooleanVar(value=True)
-            ttk.Checkbutton(row2, text="顺便编译 PDF（需装 MiKTeX / TeX Live）", style="Toolbutton",
+            ttk.Checkbutton(row2, text="同时出两种 PDF：提交版 + 排版版（需装 MiKTeX / TeX Live）", style="Toolbutton",
                             variable=self.v_pdf).pack(side="left")
             ttk.Checkbutton(row2, text="完成后打开输出文件夹", variable=self.v_open, style="Toolbutton").pack(side="left", padx=18)
             self.btn_single = ttk.Button(row2, text="开始转换", style="Accent.TButton",
@@ -703,8 +705,9 @@ def launch_gui(preload=None) -> int:
         # ---------------- 单份：文件管理 ---------------- #
         def _pick_docx(self):
             files = filedialog.askopenfilenames(
-                title="选择 Word 稿件",
-                filetypes=[("Word 文档", "*.docx"), ("所有文件", "*.*")])
+                title="选择 Word 或 PDF 稿件",
+                filetypes=[("Word / PDF", "*.docx *.pdf"), ("Word 文档", "*.docx"),
+                           ("PDF 文件", "*.pdf"), ("所有文件", "*.*")])
             return list(files or [])
 
         def add_single_files(self):
@@ -718,7 +721,7 @@ def launch_gui(preload=None) -> int:
             if not d:
                 return
             for name in sorted(os.listdir(d)):
-                if name.lower().endswith(".docx") and not name.startswith("~$"):
+                if name.lower().endswith((".docx", ".pdf")) and not name.startswith("~$"):
                     p = os.path.join(d, name)
                     if p not in self.single_files:
                         self.single_files.append(p)
@@ -753,7 +756,7 @@ def launch_gui(preload=None) -> int:
         # ---------------- 单份：执行 ---------------- #
         def do_single(self):
             if not self.single_files:
-                messagebox.showinfo(APP_NAME, "请先添加要转换的 Word 文件。")
+                messagebox.showinfo(APP_NAME, "请先添加要转换的 Word 或 PDF 文件。")
                 return
             out = self.e_single_out.get().strip() or default_outdir()
             want_pdf = self.v_pdf.get()
@@ -767,20 +770,23 @@ def launch_gui(preload=None) -> int:
                     self.q.put(("status", "正在转换 %d/%d：%s" % (i, len(files), os.path.basename(src))))
                     self.log("[%d/%d] %s" % (i, len(files), os.path.basename(src)))
                     try:
-                        info = convert_single(src, out, compile_pdf=want_pdf, log=self.log)
+                        info = convert_single(src, out, compile_pdf=want_pdf, log=self.log,
+                                              layouts=want_pdf)
                     except Exception as exc:  # noqa: BLE001
                         failed += 1
                         self.q.put(("row", src, "失败"))
                         self.log("  [失败] %s" % exc, "err")
                         continue
                     done += 1
-                    self.q.put(("row", src, "已生成 PDF" if info.get("pdf") else "已生成 .tex"))
+                    self.q.put(("row", src, "已生成 2 版" if info.get("pdf") else "已生成 .tex"))
                     pdf = info.get("pdf") or ""
                     self.log("  标题：%s　标题数：%d　文献：%d　图：%d"
                              % (info["title"][:40], info["headings"], info["refs"], info["figures"]))
                     self.log("  .tex → %s" % info["tex"])
                     if pdf:
-                        self.log("  .pdf → %s" % pdf, "ok")
+                        self.log("  提交版 PDF → %s" % pdf, "ok")
+                    if info.get("layout_pdf"):
+                        self.log("  排版版 PDF → %s" % info["layout_pdf"], "ok")
                 if want_pdf and not self.xelatex_ok:
                     self.log("提示：本机未装 LaTeX，本次只生成了 .tex。", "warn")
                 if open_after:
@@ -795,13 +801,17 @@ def launch_gui(preload=None) -> int:
             if path not in self._title_cache:
                 title = ""
                 try:
-                    import docx
-                    doc = docx.Document(path)
-                    for par in doc.paragraphs[:6]:
-                        t = " ".join((par.text or "").split())
-                        if t:
-                            title = t[:40]
-                            break
+                    if path.lower().endswith(".pdf"):
+                        from pbltex.core import pdf_head
+                        title = pdf_head(path)[:40]
+                    else:
+                        import docx
+                        doc = docx.Document(path)
+                        for par in doc.paragraphs[:6]:
+                            t = " ".join((par.text or "").split())
+                            if t:
+                                title = t[:40]
+                                break
                 except Exception:  # noqa: BLE001
                     title = "(打不开)"
                 self._title_cache[path] = title
@@ -881,7 +891,7 @@ def launch_gui(preload=None) -> int:
             if not d:
                 return
             for name in sorted(os.listdir(d)):
-                if name.lower().endswith(".docx") and not name.startswith("~$"):
+                if name.lower().endswith((".docx", ".pdf")) and not name.startswith("~$"):
                     p = os.path.join(d, name)
                     if all(p != r[0] for r in self.chapter_items):
                         self.chapter_items.append((p, -1, ""))
@@ -1015,6 +1025,11 @@ if __name__ == "__main__":
             pass
         raise
     sys.exit(code)
+
+
+
+
+
 
 
 
