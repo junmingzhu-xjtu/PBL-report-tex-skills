@@ -104,6 +104,26 @@ def _num_id(par) -> str | None:
     return numId.get(qn("w:val")) if numId is not None else None
 
 
+def _num_level(par) -> int:
+    """Word 自动编号的层级（ilvl 0/1/2 → 1/2/3）；没有编号返回 0。
+
+    有些稿子不用 Heading 样式，靠“编号层级 + 加粗”表达标题层次（如 PBL1-1 文稿）。
+    """
+    pPr = par._p.pPr
+    if pPr is None:
+        return 0
+    numPr = pPr.find(qn("w:numPr"))
+    if numPr is None:
+        return 0
+    ilvl = numPr.find(qn("w:ilvl"))
+    if ilvl is None:
+        return 0
+    try:
+        return int(ilvl.get(qn("w:val"))) + 1
+    except (TypeError, ValueError):
+        return 0
+
+
 def _all_bold(par) -> bool:
     runs = [r for r in par.runs if (r.text or "").strip()]
     if not runs:
@@ -150,9 +170,16 @@ def heading_of(par):
         if len(title) >= 2:
             return min(depth, 3), _clean_heading(title)
 
-    # 全加粗、短、不以冒号结尾 → 无编号的小标题
-    if _all_bold(par) and len(txt) <= 30 and not txt.endswith(("：", ":", "，", "、")):
-        return 2, _clean_heading(txt)
+    # 全加粗的小标题：
+    #   有自动编号（ilvl）→ 按 ilvl 定层级，允许长一些（英文标题常见）
+    #   没有编号 → 二级，要求短（避免把加粗整句当标题）
+    if _all_bold(par):
+        n_lvl = _num_level(par)
+        if n_lvl:
+            if len(txt) <= 80 and not txt.endswith(("。", "，", "、")):
+                return min(n_lvl, 3), _clean_heading(txt)
+        elif len(txt) <= 30 and not txt.endswith(("：", ":", "，", "、")):
+            return 2, _clean_heading(txt)
 
     return 0, None
 
@@ -937,8 +964,14 @@ def convert_single(docx_path, outdir, title="", author="", compile_pdf=False,
     blocks = collect(doc, figdir, prefix="", log=log)
     lead, body, refs = split_lead_and_refs(blocks)
 
+    # 稿件第一个东西就是一级标题 → 拿它当文章标题，剩下部分重新归一化
+    title_from_heading = ""
+    if not title and body and body[0][0] == "h" and body[0][1] == 1:
+        title_from_heading = body[0][2]
+        body = fix_heading_levels(body[1:])
+
     if not title:
-        title = lead[0] if lead else stem
+        title = title_from_heading or (lead[0] if lead else stem)
     if not author:
         author = lead[1] if len(lead) > 1 else ""
 
