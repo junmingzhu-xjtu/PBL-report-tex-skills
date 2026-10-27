@@ -976,8 +976,15 @@ def convert_single(docx_path, outdir, title="", author="", compile_pdf=False,
     lead, body, refs = split_lead_and_refs(blocks)
 
     # 稿件第一个东西就是一级标题 → 拿它当文章标题，剩下部分重新归一化
+    # 开头的“PBL 大报告”这类系列名不是题目（若被当成标题就直接删掉）
+    while body and body[0][0] == "h" and _looks_like_kicker(body[0][2]):
+        body = body[1:]
+    lead = [t for t in lead if not _looks_like_kicker(t)]
+
+    # 稿件最前面的那个标题就是文章题目（不管它被 Word 标成几级）
     title_from_heading = ""
-    if not title and body and body[0][0] == "h" and body[0][1] == 1:
+    if body and body[0][0] == "h" and len(body[0][2]) >= 6 \
+            and (not title or _same_text(title, body[0][2])):
         title_from_heading = body[0][2]
         body = fix_heading_levels(body[1:])
 
@@ -1077,18 +1084,35 @@ def _same_text(a: str, b: str) -> bool:
     return bool(na) and na == nb
 
 
+KICKER_WORDS = ("PBL 大报告", "PBL大报告", "PBL 学习报告", "PBL学习报告", "学习报告",
+                "PBL", "大报告", "课程报告")
+
+
+def _looks_like_kicker(t: str) -> bool:
+    """页眉/系列名之类，不是稿件的题目（如“PBL 大报告”）。"""
+    s = norm(t)
+    if not s:
+        return True
+    return s in KICKER_WORDS or s.replace(" ", "") in {w.replace(" ", "") for w in KICKER_WORDS}
+
+
 def _pick_section_title(lead, content, base):
     """决定这份稿件在大报告里的“一级标题”，并说明要不要丢掉稿件的第一个标题。
 
-    顺序：开头的题目行 → 稿件第一个标题 → 文件名。
+    顺序：稿件自己够长的第一个一级标题 → 开头的题目行 → 文件名。
     如果题目行和第一个标题是同一句话，就只留一个标题。
     """
     title = ""
     for t in lead:
-        if t and not _looks_like_person(t):
+        if t and not _looks_like_person(t) and not _looks_like_kicker(t):
             title = t.strip()
             break
     first_heading = content[0][2] if content and content[0][0] == "h" else ""
+
+    # 稿件最前面的标题就是这条的一级标题（不管它是几级样式）
+    if first_heading and len(first_heading) >= 6 \
+            and (not title or _looks_like_kicker(lead[0] if lead else "")):
+        return first_heading, True
 
     if title and first_heading and _same_text(title, first_heading):
         return title, True
@@ -1155,7 +1179,11 @@ def convert_chapters(items, outdir, title="PBL 大报告", author="", date="",
                 log("  [跳过] %s 打不开（%s）" % (base, exc))
                 continue
             lead, content, file_refs = split_lead_and_refs(blocks)
-            content = fix_heading_levels(group_label_items(content))
+            content = group_label_items(content)
+            # 开头的“PBL 大报告”之类不是稿件标题，删掉
+            while content and content[0][0] == "h" and _looks_like_kicker(content[0][2]):
+                content = content[1:]
+            content = fix_heading_levels(content)
 
             # 每份稿件 = 大报告里的一个一级标题（1. 题目），稿内标题整体降一级：
             # 文件的 1 级 → 1.1，2 级 → 1.1.1，再深 → 加粗小标题 / (1)(2)(3)
