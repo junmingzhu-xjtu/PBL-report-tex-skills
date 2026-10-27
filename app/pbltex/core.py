@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """pbltex.core —— Word 稿件 → LaTeX 的核心转换库
 
 两种产物：
@@ -269,9 +269,32 @@ def collect(doc, figdir, prefix="", log=None):
     return blocks
 
 
+def _looks_like_ref(text: str) -> bool:
+    """参考文献条目：够长、或带年份、或以句点收尾（很多稿子不写 [1] 编号）。"""
+    t = (text or "").strip()
+    if not t:
+        return False
+    if len(t) >= 12:
+        return True
+    return bool(re.search(r"(19|20)\d{2}", t) or t.endswith(".") or "[J]" in t or "[M]" in t)
+
+
+def _number_refs(file_refs):
+    """[(原编号, 文本)]：全部带 [n] 就用原编号，否则按出现顺序编 1..N。"""
+    nums = [REF_ITEM_RE.match(r) for r in file_refs]
+    out = []
+    if file_refs and all(nums):
+        for r, m in zip(file_refs, nums):
+            out.append((int(m.group(1)), norm(REF_ITEM_RE.sub("", r))))
+        return out
+    for idx, r in enumerate(file_refs, 1):
+        out.append((idx, norm(REF_ITEM_RE.sub("", r))))
+    return out
+
+
 def split_lead_and_refs(blocks):
     """拆出：开头标题/姓名行、正文块、参考文献条目、正文内的引用编号。"""
-    # 1) 参考文献：出现“参考文献”标题之后、以 [n] 开头的段落
+    # 1) 参考文献：出现“参考文献”标题之后的所有条目（带不带 [n] 编号都收）
     refs = []
     kept = []
     in_refs = False
@@ -279,12 +302,17 @@ def split_lead_and_refs(blocks):
         if b[0] == "h" and "参考文献" in b[2]:
             in_refs = True
             continue
+        if b[0] == "p" and b[1].strip() in ("参考文献", "主要参考文献", "References", "REFERENCES"):
+            in_refs = True          # 标题没设成 Heading 也能认
+            continue
         if in_refs:
-            if b[0] == "p" and REF_ITEM_RE.match(b[1]):
-                refs.append(b[1])
-                continue
-            if b[0] == "p" and not REF_ITEM_RE.match(b[1]):
-                # 参考文献列表之后的杂项（致谢等）丢弃
+            if b[0] in ("p", "li"):
+                # 参考文献常用自动编号列表（块类型是 li），也一并收进来
+                t = b[1].strip()
+                if t and (b[0] == "li" or _looks_like_ref(t) or REF_ITEM_RE.match(t)):
+                    refs.append(t)
+                continue          # 参考文献之后的零碎（致谢等）不回收
+            if b[0] in ("lab", "img", "tbl", "cap"):
                 continue
         kept.append(b)
 
@@ -1096,12 +1124,7 @@ def convert_chapters(items, outdir, title="PBL 大报告", author="", date="",
 
             # 参考文献去重 + 引用重编号
             mapping = {}
-            for r in file_refs:
-                m = REF_ITEM_RE.match(r)
-                if not m:
-                    continue
-                old = int(m.group(1))
-                text = norm(REF_ITEM_RE.sub("", r))
+            for old, text in _number_refs(file_refs):
                 key = re.sub(r"\s+", "", text)
                 if key not in refs:
                     ref_list.append(text)
