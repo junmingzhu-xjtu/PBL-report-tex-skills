@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """PBL 大报告生成器 —— 图形界面（双击即用）
 
 三种运行方式：
@@ -20,7 +20,7 @@ import time
 import traceback
 
 APP_NAME = "PBL 大报告生成器"
-APP_VERSION = "1.6.1"
+APP_VERSION = "1.7.0"
 LOG_FILE = os.path.join(tempfile.gettempdir(), "pbl_report_gui.log")
 
 
@@ -201,26 +201,49 @@ def launch_gui(preload=None) -> int:
     except Exception:  # noqa: BLE001
         pass
 
-    ACCENT = "#1f6feb"
-    ACCENT_DARK = "#1158c7"
-    MUTED = "#5b6470"
+
+        # ---------------- 视觉：配色与样式 ---------------- #
+    FONT = "Microsoft YaHei UI"
+    INK = "#101828"
+    SUB_TXT = "#667085"
+    LINE = "#E5E7EB"
+    SOFT = "#F7F8FA"
+    ACCENT = "#A5223A"
+    ACCENT_DK = "#8A1B2F"
+    ACCENT_SOFT = "#FAEDEF"
+    GREEN = "#067647"
+    GREEN_BG = "#ECFDF3"
+    RED_TXT = "#B42318"
+    RED_BG = "#FEF3F2"
 
     class ScrollFrame(ttk.Frame):
-        """可滚动的标签页：屏幕小的时候内容能滚动，按钮不会被挤出可视区。"""
+        """纵向可滚动的标签页（窗口小时内容不会丢，按钮不会被挤没）。"""
 
         def __init__(self, master):
-            super().__init__(master)
-            self.canvas = tk.Canvas(self, highlightthickness=0, bd=0, bg="#f6f7f9")
-            vs = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
-            self.canvas.configure(yscrollcommand=vs.set)
-            vs.pack(side="right", fill="y")
+            super().__init__(master, style="Page.TFrame")
+            self.canvas = tk.Canvas(self, highlightthickness=0, bd=0, bg="white")
+            self.vs = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview,
+                                    style="Slim.Vertical.TScrollbar")
+            self.canvas.configure(yscrollcommand=self._sync_bar)
+            self._vs_shown = False
             self.canvas.pack(side="left", fill="both", expand=True)
-            self.inner = ttk.Frame(self.canvas, padding=10)
+            self.inner = tk.Frame(self.canvas, bg="white", padx=2, pady=2)
             self._win = self.canvas.create_window((0, 0), window=self.inner, anchor="nw")
             self.inner.bind("<Configure>", self._on_inner)
             self.canvas.bind("<Configure>", self._on_canvas)
             self.canvas.bind("<Enter>", lambda e: self.canvas.bind_all("<MouseWheel>", self._wheel))
             self.canvas.bind("<Leave>", lambda e: self.canvas.unbind_all("<MouseWheel>"))
+
+        def _sync_bar(self, first, last):
+            # 内容超出一屏才显示滚动条，平时保持干净
+            need = not (float(first) <= 0.0 and float(last) >= 1.0)
+            if need and not self._vs_shown:
+                self.vs.pack(side="right", fill="y", before=self.canvas)
+                self._vs_shown = True
+            elif not need and self._vs_shown:
+                self.vs.pack_forget()
+                self._vs_shown = False
+            self.vs.set(first, last)
 
         def _on_inner(self, _e):
             self.canvas.configure(scrollregion=self.canvas.bbox("all"))
@@ -231,12 +254,116 @@ def launch_gui(preload=None) -> int:
         def _wheel(self, event):
             self.canvas.yview_scroll(int(-event.delta / 120), "units")
 
+    class TabView(tk.Frame):
+        """自绘标签栏：白色标题条 + 选中项交大红下划线（比 ttk.Notebook 干净）。"""
+
+        def __init__(self, master):
+            super().__init__(master, bg="white")
+            self._nav = tk.Frame(self, bg="white")
+            self._nav.pack(fill="x")
+            tk.Frame(self, bg=LINE, height=1).pack(fill="x")
+            self._body = tk.Frame(self, bg="white")
+            self._body.pack(fill="both", expand=True)
+            self._tabs = []
+            self._cur = 0
+            self._callbacks = []
+
+        def add(self, frame, text=""):
+            idx = len(self._tabs)
+            item = tk.Frame(self._nav, bg="white")
+            item.pack(side="left", padx=(0, 2))
+            lbl = tk.Label(item, text=text, bg="white", fg=SUB_TXT,
+                           font=(FONT, 10, "bold"), padx=16, pady=12, cursor="hand2")
+            lbl.pack()
+            bar = tk.Frame(item, bg="white", height=3)
+            bar.pack(fill="x")
+
+            def enter(_e, w=lbl, k=idx):
+                w.configure(fg=(ACCENT if k == self._cur else INK))
+
+            def leave(_e, w=lbl, k=idx):
+                w.configure(fg=(ACCENT if k == self._cur else SUB_TXT))
+
+            lbl.bind("<Button-1>", lambda _e, k=idx: self.select(k))
+            lbl.bind("<Enter>", enter)
+            lbl.bind("<Leave>", leave)
+            self._tabs.append({"frame": frame, "label": lbl, "bar": bar})
+            frame.place(in_=self._body, x=0, y=0, relwidth=1, relheight=1)
+            frame.place_forget()
+            return idx
+
+        def select(self, idx=None):
+            if idx is None:
+                return self._cur
+            if not self._tabs or not (0 <= idx < len(self._tabs)):
+                return self._cur
+            self._cur = idx
+            for k, tab in enumerate(self._tabs):
+                on = (k == idx)
+                tab["label"].configure(fg=(ACCENT if on else SUB_TXT))
+                tab["bar"].configure(bg=(ACCENT if on else "white"))
+                if on:
+                    tab["frame"].place(in_=self._body, x=0, y=0, relwidth=1, relheight=1)
+                else:
+                    tab["frame"].place_forget()
+            for cb in list(self._callbacks):
+                try:
+                    cb(None)
+                except Exception:  # noqa: BLE001
+                    pass
+            return idx
+
+        def index(self, what="current"):
+            return what if isinstance(what, int) else self._cur
+
+        def bind(self, seq=None, func=None, add=None):  # noqa: A003
+            if seq == "<<NotebookTabChanged>>":
+                self._callbacks.append(func)
+                return ""
+            return super().bind(seq, func, add)
+
+    class Toggle(tk.Frame):
+        """拨动开关，替代 clam 那个带叉的复选框。"""
+
+        W, H = 40, 22
+
+        def __init__(self, master, text, var):
+            super().__init__(master, bg="white")
+            self.var = var
+            self.cv = tk.Canvas(self, width=self.W, height=self.H, bg="white",
+                                highlightthickness=0, cursor="hand2")
+            self.cv.pack(side="left")
+            self.lbl = tk.Label(self, text=text, bg="white", fg=INK, font=(FONT, 9),
+                                cursor="hand2")
+            self.lbl.pack(side="left", padx=(9, 0))
+            for w in (self.cv, self.lbl):
+                w.bind("<Button-1>", self._click)
+            try:
+                var.trace_add("write", lambda *a: self._draw())
+            except Exception:  # noqa: BLE001
+                pass
+            self._draw()
+
+        def _draw(self):
+            on = bool(self.var.get())
+            track = ACCENT if on else "#D5D9E0"
+            self.cv.delete("all")
+            self.cv.create_oval(1, 4, 19, 18, fill=track, outline=track)
+            self.cv.create_oval(21, 4, 39, 18, fill=track, outline=track)
+            self.cv.create_rectangle(10, 4, 30, 18, fill=track, outline=track)
+            x = 30 if on else 10
+            self.cv.create_oval(x - 7, 3, x + 7, 19, fill="white", outline="#EDEFF2")
+
+        def _click(self, _e=None):
+            self.var.set(not self.var.get())
+
     class App(tk.Tk):
         def __init__(self):
             super().__init__()
             self.title("%s  v%s" % (APP_NAME, APP_VERSION))
-            self.geometry("1180x900")
-            self.minsize(1040, 700)
+            self.geometry("1200x900")
+            self.minsize(1060, 720)
+            self.configure(bg="white")
             self.q = queue.Queue()
             self.busy = False
             self.single_files = []
@@ -262,261 +389,395 @@ def launch_gui(preload=None) -> int:
                 st.theme_use("clam")
             except tk.TclError:
                 pass
-            base = ("Microsoft YaHei UI", 10)
-            st.configure(".", font=base, background="#f6f7f9")
-            st.configure("TFrame", background="#f6f7f9")
-            st.configure("Card.TFrame", background="white", relief="flat")
-            st.configure("TLabel", background="#f6f7f9")
-            st.configure("Card.TLabel", background="white")
-            st.configure("Title.TLabel", font=("Microsoft YaHei UI", 15, "bold"),
-                         background="#f6f7f9", foreground="#16202c")
-            st.configure("Sub.TLabel", font=("Microsoft YaHei UI", 9),
-                         background="#f6f7f9", foreground=MUTED)
-            st.configure("H.TLabelframe", background="#f6f7f9")
-            st.configure("TLabelframe", background="#f6f7f9", relief="solid", borderwidth=1)
-            st.configure("TLabelframe.Label", font=("Microsoft YaHei UI", 10, "bold"),
-                         background="#f6f7f9", foreground="#22303f")
-            st.configure("TButton", padding=(10, 6), font=("Microsoft YaHei UI", 9))
-            st.configure("Accent.TButton", padding=(16, 9), font=("Microsoft YaHei UI", 10, "bold"),
-                         background=ACCENT, foreground="white", borderwidth=0)
-            st.map("Accent.TButton",
-                   background=[("active", ACCENT_DARK), ("disabled", "#a8c0e4")],
-                   foreground=[("disabled", "#eef2f8")])
-            st.configure("Toolbutton", font=("Microsoft YaHei UI", 9), padding=(12, 5), background="#e7eaef", relief="flat")
-            st.map("Toolbutton",
-                   background=[("selected", ACCENT_DARK), ("active", "#dbe4f3")],
-                   foreground=[("selected", "white")])
-            st.configure("Treeview", font=("Microsoft YaHei UI", 9), rowheight=26,
-                         background="white", fieldbackground="white")
-            st.configure("Treeview.Heading", font=("Microsoft YaHei UI", 9, "bold"))
-            st.configure("TNotebook", background="#f6f7f9", borderwidth=0)
-            st.configure("TNotebook.Tab", padding=(18, 9), font=("Microsoft YaHei UI", 10))
-            st.map("TNotebook.Tab",
-                   background=[("selected", "white"), ("!selected", "#e7eaef")],
-                   foreground=[("selected", ACCENT_DARK)])
-            st.configure("TEntry", padding=4)
-            st.configure("Horizontal.TProgressbar", background=ACCENT, troughcolor="#e7eaef")
+            st.configure(".", font=(FONT, 10), background="white", foreground=INK)
+            st.configure("TFrame", background="white")
+            st.configure("Page.TFrame", background="white")
+            st.configure("TLabel", background="white", foreground=INK)
+            st.configure("Muted.TLabel", background="white", foreground=SUB_TXT, font=(FONT, 9))
+            st.configure("Field.TLabel", background="white", foreground=SUB_TXT, font=(FONT, 9))
+
+            st.configure("Field.TEntry", padding=(8, 5), fieldbackground="white",
+                         bordercolor=LINE, lightcolor=LINE, darkcolor=LINE,
+                         insertcolor=INK, foreground=INK)
+            st.map("Field.TEntry",
+                   bordercolor=[("focus", ACCENT)], lightcolor=[("focus", ACCENT)],
+                   darkcolor=[("focus", ACCENT)])
+
+            st.configure("TButton", font=(FONT, 9), padding=(12, 7), background="white",
+                         foreground=INK, bordercolor=LINE, lightcolor="white", darkcolor=LINE,
+                         relief="flat", focusthickness=0)
+            st.map("TButton",
+                   background=[("active", SOFT), ("pressed", "#EFF1F4")],
+                   bordercolor=[("active", "#D0D5DD")])
+            st.configure("Soft.TButton", font=(FONT, 9), padding=(12, 7), background=SOFT,
+                         foreground=INK, bordercolor=LINE)
+            st.map("Soft.TButton", background=[("active", "#ECEEF2")])
+            st.configure("Ghost.TButton", font=(FONT, 9), padding=(10, 6), background="white",
+                         foreground=SUB_TXT, bordercolor="white")
+            st.map("Ghost.TButton", background=[("active", SOFT)])
+            st.configure("Primary.TButton", font=(FONT, 10, "bold"), padding=(20, 10),
+                         background=ACCENT, foreground="white", bordercolor=ACCENT,
+                         lightcolor=ACCENT, darkcolor=ACCENT_DK, relief="flat")
+            st.map("Primary.TButton",
+                   background=[("active", ACCENT_DK), ("pressed", ACCENT_DK),
+                               ("disabled", "#E4E7EC")],
+                   foreground=[("disabled", "#98A2B3")],
+                   bordercolor=[("disabled", "#E4E7EC")])
+
+            st.configure("TCheckbutton", background="white", foreground=INK, font=(FONT, 9),
+                         focusthickness=0, indicatorcolor="white",
+                         indicatorrelief="flat", upperbordercolor="#C9CED6",
+                         lowerbordercolor="#C9CED6", focuscolor="white")
+            st.map("TCheckbutton", background=[("active", "white")],
+                   foreground=[("disabled", "#98A2B3")],
+                   indicatorcolor=[("selected", ACCENT), ("pressed", ACCENT)])
+            st.configure("Card.TCheckbutton", background="white", foreground=INK,
+                         font=(FONT, 9))
+
+            st.configure("Treeview", font=(FONT, 9), rowheight=32, background="white",
+                         fieldbackground="white", foreground=INK, borderwidth=0, relief="flat")
+            st.layout("Treeview", [("Treeview.treearea", {"sticky": "nswe"})])
+            st.configure("Treeview.Heading", font=(FONT, 9, "bold"), background=SOFT,
+                         foreground=SUB_TXT, relief="flat", borderwidth=0, padding=(8, 9))
+            st.map("Treeview.Heading", background=[("active", "#EFF1F4")])
+            st.map("Treeview", background=[("selected", ACCENT_SOFT)],
+                   foreground=[("selected", ACCENT)])
+
+            st.configure("Slim.Vertical.TScrollbar", background=SOFT, troughcolor="white",
+                         bordercolor="white", arrowcolor=SUB_TXT, arrowsize=12)
+            st.configure("Slim.Horizontal.TProgressbar", background=ACCENT, troughcolor="#F0F1F4",
+                         bordercolor="#F0F1F4", thickness=6)
+
+        # ---------------- 小部件 ---------------- #
+        def _hline(self, parent, pady=(0, 0)):
+            ln = tk.Frame(parent, bg=LINE, height=1)
+            ln.pack(fill="x", pady=pady)
+            return ln
+
+        def _section(self, parent, title, hint=""):
+            """带交大红竖条的分区标题，返回内容区。"""
+            head = tk.Frame(parent, bg="white")
+            head.pack(fill="x", pady=(9, 4))
+            tk.Frame(head, bg=ACCENT, width=3, height=15).pack(side="left", padx=(0, 9))
+            tk.Label(head, text=title, bg="white", fg=INK,
+                     font=(FONT, 11, "bold")).pack(side="left")
+            if hint:
+                tk.Label(head, text=hint, bg="white", fg=SUB_TXT,
+                         font=(FONT, 9)).pack(side="left", padx=(10, 0))
+            body = tk.Frame(parent, bg="white")
+            body.pack(fill="both", expand=True)
+            return body
+
+        def _bordered(self, parent, bg="white"):
+            """1px 细边框的容器（树形表格、文本框用）。"""
+            wrap = tk.Frame(parent, bg=LINE, padx=1, pady=1)
+            inner = tk.Frame(wrap, bg=bg)
+            inner.pack(fill="both", expand=True)
+            return wrap, inner
 
         # ---------------- 布局 ---------------- #
         def _build(self):
-            top = ttk.Frame(self)
-            top.pack(side="top", fill="x", padx=16, pady=(12, 6))
-            ttk.Label(top, text=APP_NAME, style="Title.TLabel").pack(side="left")
-            ttk.Label(top, text="Word / PDF 稿件 → 规范 LaTeX / PDF　·　四章式大报告一键合成",
-                      style="Sub.TLabel").pack(side="left", padx=(12, 0), pady=(6, 0))
-            self.env_badge = tk.Label(top, text="正在检测 LaTeX 环境…", font=("Microsoft YaHei UI", 9),
-                                      fg=MUTED, bg="#f6f7f9")
-            self.env_badge.pack(side="right")
+            # ---------- 顶栏 ----------
+            header = tk.Frame(self, bg="white")
+            header.pack(side="top", fill="x")
+            hpad = tk.Frame(header, bg="white")
+            hpad.pack(fill="x", padx=22, pady=(14, 12))
 
-            # 先摆底部（状态栏 + 日志），再让中间的标签页吃掉剩余空间：
-            # 这样窗口被拉小/在高分屏上，标签页会自己收缩，日志不会被挤没。
-            bottom = ttk.Frame(self)
-            bottom.pack(side="bottom", fill="x", padx=16, pady=(0, 10))
-            self.status = ttk.Label(bottom, text="就绪", style="Sub.TLabel")
+            left = tk.Frame(hpad, bg="white")
+            left.pack(side="left")
+            mark = tk.Canvas(left, width=38, height=38, bg="white", highlightthickness=0)
+            mark.pack(side="left", padx=(0, 14))
+            mark.create_rectangle(0, 0, 38, 38, fill=ACCENT, outline="")
+            mark.create_text(19, 13, text="PBL", fill="white", font=(FONT, 7, "bold"))
+            mark.create_text(19, 25, text="TEX", fill="#F3C6CE", font=(FONT, 7, "bold"))
+            tbox = tk.Frame(left, bg="white")
+            tbox.pack(side="left")
+            tk.Label(tbox, text=APP_NAME, bg="white", fg=INK,
+                     font=(FONT, 15, "bold")).pack(anchor="w")
+            tk.Label(tbox, text="Word / PDF 稿件 → 规范 LaTeX 与两种 PDF　·　四章式大报告一键合成",
+                     bg="white", fg=SUB_TXT, font=(FONT, 9)).pack(anchor="w", pady=(3, 0))
+
+            self.env_badge = tk.Label(hpad, text="正在检测 LaTeX 环境…", font=(FONT, 9),
+                                      fg=SUB_TXT, bg=SOFT, padx=12, pady=6)
+            self.env_badge.pack(side="right")
+            tk.Frame(self, bg=LINE, height=1).pack(side="top", fill="x")
+
+            # ---------- 状态栏（先摆底部）----------
+            sbar = tk.Frame(self, bg="white")
+            sbar.pack(side="bottom", fill="x")
+            tk.Frame(sbar, bg=LINE, height=1).pack(fill="x")
+            sin = tk.Frame(sbar, bg="white")
+            sin.pack(fill="x", padx=22, pady=8)
+            self.status = tk.Label(sin, text="就绪", bg="white", fg=SUB_TXT, font=(FONT, 9))
             self.status.pack(side="left")
-            self.progress = ttk.Progressbar(bottom, mode="determinate", length=220)
+            self.progress = ttk.Progressbar(sin, mode="determinate", length=180,
+                                            style="Slim.Horizontal.TProgressbar")
             self.progress.pack(side="right")
-            # 合并模式的“生成大报告”按钮放在状态栏：切到 ② 才出现，始终看得见
-            self.btn_ch = ttk.Button(bottom, text="生成大报告", style="Accent.TButton",
+            self.btn_ch = ttk.Button(sin, text="生成大报告", style="Primary.TButton",
                                      command=self.do_chapters)
 
-            logf = ttk.LabelFrame(self, text="运行日志")
-            logf.pack(side="bottom", fill="both", padx=16, pady=(0, 6))
-            self.logbox = tk.Text(logf, height=4, wrap="word", font=("Consolas", 9),
-                                  bg="#0f1720", fg="#d7e2ee", insertbackground="#d7e2ee",
-                                  relief="flat", padx=8, pady=6)
-            sb = ttk.Scrollbar(logf, command=self.logbox.yview)
-            self.logbox.configure(yscrollcommand=sb.set)
-            sb.pack(side="right", fill="y")
-            self.logbox.pack(side="left", fill="both", expand=True, padx=(6, 0), pady=6)
-            self.logbox.tag_configure("ok", foreground="#7ee2a8")
-            self.logbox.tag_configure("warn", foreground="#ffd479")
-            self.logbox.tag_configure("err", foreground="#ff8a80")
+            # ---------- 运行日志 ----------
+            logwrap = tk.Frame(self, bg="white")
+            logwrap.pack(side="bottom", fill="both", padx=22, pady=(2, 8))
+            lhead = tk.Frame(logwrap, bg="white")
+            lhead.pack(fill="x", pady=(8, 5))
+            tk.Label(lhead, text="运行日志", bg="white", fg=INK,
+                     font=(FONT, 9, "bold")).pack(side="left")
+            tk.Label(lhead, text="·  「③ 环境与说明」里可以保存", bg="white", fg=SUB_TXT,
+                     font=(FONT, 8)).pack(side="left", padx=(8, 0))
+            self._log_open = False
+            self.log_toggle = tk.Label(lhead, text="展开 ▾", bg="white", fg=SUB_TXT,
+                                       font=(FONT, 8), cursor="hand2")
+            self.log_toggle.pack(side="right")
+            lbox = tk.Frame(logwrap, bg="#0B1220")
+            lbox.pack(fill="both")
+            self.logbox = tk.Text(lbox, height=3, wrap="word", font=("Consolas", 9),
+                                  bg="#0B1220", fg="#C7D2E0", insertbackground="#C7D2E0",
+                                  relief="flat", padx=14, pady=10, borderwidth=0,
+                                  highlightthickness=0, spacing1=1, spacing3=2)
+            lsb = ttk.Scrollbar(lbox, command=self.logbox.yview,
+                                style="Slim.Vertical.TScrollbar")
+            self.logbox.configure(yscrollcommand=lsb.set)
+            lsb.pack(side="right", fill="y")
+            self.logbox.pack(side="left", fill="both", expand=True)
+            lbox.pack_forget()          # 默认收起，点右上角“展开”再看日志
+            def _toggle_log(_e=None):
+                self._log_open = not self._log_open
+                if self._log_open:
+                    lbox.pack(fill="both")
+                    self.log_toggle.configure(text="展开 ▾")
+                else:
+                    lbox.pack_forget()
+                    self.log_toggle.configure(text="展开 ▾")
 
-            self.nb = ttk.Notebook(self)
-            self.nb.pack(side="top", fill="both", expand=True, padx=16, pady=(4, 6))
+            self.log_toggle.bind("<Button-1>", _toggle_log)
+            self.logbox.tag_configure("ok", foreground="#6EE7A8")
+            self.logbox.tag_configure("warn", foreground="#FBBF6A")
+            self.logbox.tag_configure("err", foreground="#FB8A8A")
+
+            # ---------- 标签页 ----------
+            self.nb = TabView(self)
+            self.nb.pack(side="top", fill="both", expand=True, padx=18, pady=(2, 0))
             self._tab_single()
             self._tab_chapters()
             self._tab_env()
             self.nb.bind("<<NotebookTabChanged>>", self._on_tab_change)
+            self.nb.select(0)
 
         def _tab_single(self):
             sf = ScrollFrame(self.nb)
-            self.nb.add(sf, text="① 单份转换")
+            self.nb.add(sf, text="①  单份转换")
             f = sf.inner
 
-            box = ttk.LabelFrame(f, text="待转换的 Word 稿件")
-            box.pack(fill="both", expand=True)
+            body = self._section(f, "待转换的稿件", "支持 .docx 与 .pdf，每份稿件输出独立文件夹")
+            wrap, inner = self._bordered(body)
+            wrap.pack(fill="both", expand=True)
             cols = ("file", "status")
-            self.tv_single = ttk.Treeview(box, columns=cols, show="headings", height=4)
+            self.tv_single = ttk.Treeview(inner, columns=cols, show="headings", height=4)
             self.tv_single.heading("file", text="文件")
             self.tv_single.heading("status", text="状态")
-            self.tv_single.column("file", width=560, anchor="w")
-            self.tv_single.column("status", width=120, anchor="center")
-            s1 = ttk.Scrollbar(box, command=self.tv_single.yview)
+            self.tv_single.column("file", width=620, anchor="w")
+            self.tv_single.column("status", width=140, anchor="center")
+            self.tv_single.tag_configure("odd", background="#FCFCFD")
+            s1 = ttk.Scrollbar(inner, command=self.tv_single.yview,
+                               style="Slim.Vertical.TScrollbar")
             self.tv_single.configure(yscrollcommand=s1.set)
-            s1.pack(side="right", fill="y", pady=6, padx=(0, 6))
-            self.tv_single.pack(fill="both", expand=True, padx=6, pady=6)
+            s1.pack(side="right", fill="y")
+            self.tv_single.pack(side="left", fill="both", expand=True)
+            self.hint_single = tk.Label(inner, text="还没有添加文件　·　点下面「添加文件…」或直接把 Word / PDF 拖进来",
+                                        bg="white", fg="#98A2B3", font=(FONT, 9))
+            self.hint_single.place(relx=0.5, rely=0.55, anchor="center")
 
-            bar = ttk.Frame(f)
+            bar = tk.Frame(f, bg="white")
             bar.pack(fill="x", pady=(6, 0))
-            ttk.Button(bar, text="添加 Word 文件…", command=self.add_single_files).pack(side="left")
-            ttk.Button(bar, text="添加整个文件夹…", command=self.add_single_folder).pack(side="left", padx=6)
-            ttk.Button(bar, text="移除所选", command=self.remove_single).pack(side="left")
-            ttk.Button(bar, text="清空", command=self.clear_single).pack(side="left", padx=6)
+            ttk.Button(bar, text="添加文件…", style="Soft.TButton",
+                       command=self.add_single_files).pack(side="left")
+            ttk.Button(bar, text="添加整个文件夹…",
+                       command=self.add_single_folder).pack(side="left", padx=8)
+            ttk.Button(bar, text="移除所选", style="Ghost.TButton",
+                       command=self.remove_single).pack(side="left")
+            ttk.Button(bar, text="清空", style="Ghost.TButton",
+                       command=self.clear_single).pack(side="left", padx=4)
 
-            opt = ttk.LabelFrame(f, text="输出与选项")
-            opt.pack(fill="x", pady=(12, 0))
-            row = ttk.Frame(opt)
-            row.pack(fill="x", padx=8, pady=(8, 4))
-            ttk.Label(row, text="输出目录：").pack(side="left")
-            self.e_single_out = ttk.Entry(row)
+            opt = self._section(f, "输出与选项")
+            row = tk.Frame(opt, bg="white")
+            row.pack(fill="x", pady=(0, 8))
+            ttk.Label(row, text="输出目录", style="Field.TLabel").pack(side="left", padx=(0, 8))
+            self.e_single_out = ttk.Entry(row, style="Field.TEntry")
             self.e_single_out.insert(0, default_outdir())
-            self.e_single_out.pack(side="left", fill="x", expand=True, padx=6)
-            ttk.Button(row, text="浏览…", command=lambda: self.pick_dir(self.e_single_out)).pack(side="left")
+            self.e_single_out.pack(side="left", fill="x", expand=True)
+            ttk.Button(row, text="浏览…", command=lambda: self.pick_dir(self.e_single_out)
+                       ).pack(side="left", padx=(8, 0))
 
-            row2 = ttk.Frame(opt)
-            row2.pack(fill="x", padx=8, pady=(2, 10))
+            row2 = tk.Frame(opt, bg="white")
+            row2.pack(fill="x", pady=(0, 10))
             self.v_pdf = tk.BooleanVar(value=True)
             self.v_open = tk.BooleanVar(value=True)
-            ttk.Checkbutton(row2, text="同时出两种 PDF：提交版 + 排版版（需装 MiKTeX / TeX Live）", style="Toolbutton",
-                            variable=self.v_pdf).pack(side="left")
-            ttk.Checkbutton(row2, text="完成后打开输出文件夹", variable=self.v_open, style="Toolbutton").pack(side="left", padx=18)
-            self.btn_single = ttk.Button(row2, text="开始转换", style="Accent.TButton",
+            Toggle(row2, "同时出两种 PDF（提交版 + 排版版）", self.v_pdf).pack(side="left")
+            Toggle(row2, "完成后打开输出文件夹", self.v_open).pack(side="left", padx=24)
+            self.btn_single = ttk.Button(row2, text="开始转换", style="Primary.TButton",
                                          command=self.do_single)
             self.btn_single.pack(side="right")
 
         def _tab_chapters(self):
             sf = ScrollFrame(self.nb)
-            self.nb.add(sf, text="② 合并四章大报告")
+            self.nb.add(sf, text="②  合并四章")
             f = sf.inner
 
-            box = ttk.LabelFrame(f, text="稿件与分章（选中行后点下方章节按钮即可分配）")
-            box.pack(fill="both", expand=True)
+            body = self._section(f, "稿件与分章", "选中行后点下方章节按钮分配；双击可改一级标题")
+            wrap, inner = self._bordered(body)
+            wrap.pack(fill="both", expand=True)
             cols = ("idx", "name", "chapter", "title")
-            self.tv_ch = ttk.Treeview(box, columns=cols, show="headings", height=4)
+            self.tv_ch = ttk.Treeview(inner, columns=cols, show="headings", height=2)
             self.tv_ch.heading("idx", text="#")
             self.tv_ch.heading("name", text="文件名")
             self.tv_ch.heading("chapter", text="章节")
             self.tv_ch.heading("title", text="一级标题（双击可改）")
-            self.tv_ch.column("idx", width=42, anchor="center")
+            self.tv_ch.column("idx", width=44, anchor="center")
             self.tv_ch.column("name", width=330, anchor="w")
-            self.tv_ch.column("chapter", width=110, anchor="center")
-            self.tv_ch.column("title", width=360, anchor="w")
-            s2 = ttk.Scrollbar(box, command=self.tv_ch.yview)
+            self.tv_ch.column("chapter", width=120, anchor="center")
+            self.tv_ch.column("title", width=380, anchor="w")
+            self.tv_ch.tag_configure("odd", background="#FCFCFD")
+            s2 = ttk.Scrollbar(inner, command=self.tv_ch.yview,
+                               style="Slim.Vertical.TScrollbar")
             self.tv_ch.configure(yscrollcommand=s2.set)
-            s2.pack(side="right", fill="y", pady=6, padx=(0, 6))
-            self.tv_ch.pack(fill="both", expand=True, padx=6, pady=6)
+            s2.pack(side="right", fill="y")
+            self.tv_ch.pack(side="left", fill="both", expand=True)
+            self.hint_ch = tk.Label(inner, text="还没有添加稿件　·　添加后点「自动分章」，再核对章节",
+                                    bg="white", fg="#98A2B3", font=(FONT, 9))
+            self.hint_ch.place(relx=0.5, rely=0.55, anchor="center")
             self.tv_ch.bind("<Double-1>", self._edit_section_title)
 
-            bar = ttk.Frame(f)
-            bar.pack(fill="x", pady=(6, 0))
-            ttk.Button(bar, text="添加 Word 文件…", command=self.add_chapter_files).pack(side="left")
-            ttk.Button(bar, text="添加整个文件夹…", command=self.add_chapter_folder).pack(side="left", padx=6)
-            ttk.Button(bar, text="移除所选", command=self.remove_chapter).pack(side="left")
-            ttk.Button(bar, text="自动分章", command=self.auto_assign).pack(side="left", padx=(18, 0))
-            ttk.Label(bar, text="（按题目关键词先猜一遍，再逐份核对）", style="Sub.TLabel").pack(side="left", padx=8)
+            bar = tk.Frame(f, bg="white")
+            bar.pack(fill="x", pady=(10, 0))
+            ttk.Button(bar, text="添加文件…", style="Soft.TButton",
+                       command=self.add_chapter_files).pack(side="left")
+            ttk.Button(bar, text="添加整个文件夹…",
+                       command=self.add_chapter_folder).pack(side="left", padx=8)
+            ttk.Button(bar, text="移除所选", style="Ghost.TButton",
+                       command=self.remove_chapter).pack(side="left")
+            ttk.Button(bar, text="自动分章", style="Soft.TButton",
+                       command=self.auto_assign).pack(side="left", padx=(20, 0))
+            ttk.Label(bar, text="按题目关键词先猜一遍，再逐份核对", style="Muted.TLabel"
+                      ).pack(side="left", padx=10)
 
-            bar2 = ttk.Frame(f)
-            bar2.pack(fill="x", pady=(4, 0))
-            ttk.Label(bar2, text="选中行分配到：").pack(side="left")
+            bar2 = tk.Frame(f, bg="white")
+            bar2.pack(fill="x", pady=(6, 0))
+            ttk.Label(bar2, text="选中行分配到", style="Field.TLabel").pack(side="left", padx=(0, 8))
             for i, name in enumerate(CHAPTER_NAMES):
-                ttk.Button(bar2, text="→ " + name,
-                           command=lambda k=i: self.assign_chapter(k)).pack(side="left", padx=(6, 0))
-            ttk.Button(bar2, text="→ 不收录", command=lambda: self.assign_chapter(-1)).pack(side="left", padx=(6, 0))
+                ttk.Button(bar2, text=name, style="Soft.TButton",
+                           command=lambda k=i: self.assign_chapter(k)).pack(side="left", padx=(0, 6))
+            ttk.Button(bar2, text="不收录", style="Ghost.TButton",
+                       command=lambda: self.assign_chapter(-1)).pack(side="left", padx=(2, 0))
 
-            # ---------------- 封面（照 23 级 Case 报告样式） ----------------
-            cov = ttk.LabelFrame(f, text="封面信息（照 23 级 Case 报告的样式：校徽 + 三行标题 + Tutor/主席/书记/成员）")
-            cov.pack(fill="x", pady=(10, 0))
-            cg = ttk.Frame(cov)
-            cg.pack(fill="x", padx=8, pady=(6, 2))
-            ttk.Label(cg, text="首行：").grid(row=0, column=0, sticky="w")
-            self.e_cov_line1 = ttk.Entry(cg, width=26)
+            # ---------------- 封面 ----------------
+            cov = self._section(f, "封面信息", "校徽 + 三行标题 + Tutor / 主席 / 书记 / 成员（组员用空格分隔）")
+            cg = tk.Frame(cov, bg="white")
+            cg.pack(fill="x")
+            for col, w in ((1, 1), (3, 1)):
+                cg.columnconfigure(col, weight=w)
+
+            def lab(row, col, text, pad=(0, 0)):
+                ttk.Label(cg, text=text, style="Field.TLabel").grid(
+                    row=row, column=col, sticky="w", padx=pad, pady=2)
+
+            lab(0, 0, "首行")
+            self.e_cov_line1 = ttk.Entry(cg, style="Field.TEntry")
             self.e_cov_line1.insert(0, "2023级11组PBL学习")
-            self.e_cov_line1.grid(row=0, column=1, sticky="we", padx=6, pady=2)
-            ttk.Label(cg, text="次行：").grid(row=0, column=2, sticky="w", padx=(14, 0))
-            self.e_cov_line2 = ttk.Entry(cg, width=12)
+            self.e_cov_line1.grid(row=0, column=1, sticky="we", padx=6, pady=3)
+            lab(0, 2, "次行", (14, 0))
+            self.e_cov_line2 = ttk.Entry(cg, style="Field.TEntry")
             self.e_cov_line2.insert(0, "学习报告")
-            self.e_cov_line2.grid(row=0, column=3, sticky="we", padx=6, pady=2)
+            self.e_cov_line2.grid(row=0, column=3, sticky="we", padx=6, pady=3)
 
-            ttk.Label(cg, text="Case（作者填）：").grid(row=1, column=0, sticky="w")
-            self.e_cov_case = ttk.Entry(cg, width=26)
+            lab(1, 0, "Case（作者填）")
+            self.e_cov_case = ttk.Entry(cg, style="Field.TEntry")
             self.e_cov_case.insert(0, "Case 1：难缠的脖子痛")
-            self.e_cov_case.grid(row=1, column=1, sticky="we", padx=6, pady=2)
-            ttk.Label(cg, text="Tutor：").grid(row=1, column=2, sticky="w", padx=(14, 0))
-            self.e_cov_tutor = ttk.Entry(cg, width=12)
+            self.e_cov_case.grid(row=1, column=1, sticky="we", padx=6, pady=3)
+            lab(1, 2, "Tutor", (14, 0))
+            self.e_cov_tutor = ttk.Entry(cg, style="Field.TEntry")
             self.e_cov_tutor.insert(0, "马凯歌")
-            self.e_cov_tutor.grid(row=1, column=3, sticky="we", padx=6, pady=2)
+            self.e_cov_tutor.grid(row=1, column=3, sticky="we", padx=6, pady=3)
 
-            ttk.Label(cg, text="主席：").grid(row=2, column=0, sticky="w")
-            f_chair = ttk.Frame(cg)
-            f_chair.grid(row=2, column=1, sticky="we", padx=6, pady=2)
-            self.e_cov_chair = ttk.Entry(f_chair, width=12)
+            lab(2, 0, "主席")
+            f_chair = tk.Frame(cg, bg="white")
+            f_chair.grid(row=2, column=1, sticky="we", padx=6, pady=3)
+            self.e_cov_chair = ttk.Entry(f_chair, style="Field.TEntry")
             self.e_cov_chair.insert(0, "朱俊铭")
             self.e_cov_chair.pack(side="left", fill="x", expand=True)
-            ttk.Label(f_chair, text="　书记：").pack(side="left")
-            self.e_cov_sec = ttk.Entry(f_chair, width=12)
+            ttk.Label(f_chair, text="书记", style="Field.TLabel").pack(side="left", padx=(10, 6))
+            self.e_cov_sec = ttk.Entry(f_chair, style="Field.TEntry")
             self.e_cov_sec.insert(0, "郭育恒")
             self.e_cov_sec.pack(side="left", fill="x", expand=True)
-            ttk.Label(cg, text="日期：").grid(row=2, column=2, sticky="w", padx=(14, 0))
-            self.e_cov_date = ttk.Entry(cg, width=12)
+            lab(2, 2, "日期", (14, 0))
+            self.e_cov_date = ttk.Entry(cg, style="Field.TEntry")
             self.e_cov_date.insert(0, time.strftime("%Y 年 %m 月"))
-            self.e_cov_date.grid(row=2, column=3, sticky="we", padx=6, pady=2)
+            self.e_cov_date.grid(row=2, column=3, sticky="we", padx=6, pady=3)
 
-            ttk.Label(cg, text="组员：").grid(row=3, column=0, sticky="w")
-            self.e_cov_members = ttk.Entry(cg, width=26)
+            lab(3, 0, "组员")
+            self.e_cov_members = ttk.Entry(cg, style="Field.TEntry")
             self.e_cov_members.insert(0, "叶瑞林 张欣仪 韩曦 任欣萌 王思源 于子轩 牛海华 韩畅")
-            self.e_cov_members.grid(row=3, column=1, columnspan=3, sticky="we", padx=6, pady=2)
-            ttk.Label(cg, text="（组员空格/逗号分隔，主席与书记不必重复写；Case 只填名称会自动补“Case：”）", style="Sub.TLabel").grid(
-                row=4, column=1, columnspan=3, sticky="w", padx=6)
-            cg.columnconfigure(1, weight=1)
-            cg.columnconfigure(3, weight=1)
+            self.e_cov_members.grid(row=3, column=1, columnspan=3, sticky="we", padx=6, pady=3)
 
-            lrow = ttk.Frame(cov)
-            lrow.pack(fill="x", padx=8, pady=(2, 2))
-            ttk.Label(lrow, text="校徽图片：").pack(side="left")
-            self.e_cov_logo = ttk.Entry(lrow)
-            self.e_cov_logo.insert(0, default_cover_logo())
-            self.e_cov_logo.pack(side="left", fill="x", expand=True, padx=6)
-            ttk.Button(lrow, text="浏览…", command=self.pick_cover_logo).pack(side="left")
-            ttk.Button(lrow, text="不用图", command=lambda: (self.e_cov_logo.delete(0, "end"))).pack(side="left", padx=6)
 
-            orow = ttk.Frame(cov)
-            orow.pack(fill="x", padx=8, pady=(2, 2))
-            ttk.Label(orow, text="输出目录：").pack(side="left")
-            self.e_ch_out = ttk.Entry(orow, width=30)
+            lrow = tk.Frame(cov, bg="white")
+            lrow.pack(fill="x", pady=(6, 0))
+            ttk.Label(lrow, text="封面图片（可留空）", style="Field.TLabel").pack(side="left", padx=(0, 8))
+            self.e_cov_logo = ttk.Entry(lrow, style="Field.TEntry")
+            self.e_cov_logo.insert(0, "")
+            self.e_cov_logo.pack(side="left", fill="x", expand=True)
+            ttk.Button(lrow, text="浏览…",
+                       command=self.pick_cover_logo).pack(side="left", padx=(8, 0))
+            ttk.Label(lrow, text="默认不加校徽/院徽，需要时自己选一张",
+                      style="Muted.TLabel").pack(side="left", padx=(10, 0))
+
+            # ---------------- 输出 ----------------
+            out = self._section(f, "输出")
+            orow = tk.Frame(out, bg="white")
+            orow.pack(fill="x", pady=(0, 8))
+            ttk.Label(orow, text="输出目录", style="Field.TLabel").pack(side="left", padx=(0, 8))
+            self.e_ch_out = ttk.Entry(orow, style="Field.TEntry")
             self.e_ch_out.insert(0, default_outdir())
-            self.e_ch_out.pack(side="left", fill="x", expand=True, padx=6)
-            ttk.Button(orow, text="浏览…", command=lambda: self.pick_dir(self.e_ch_out)).pack(side="left")
+            self.e_ch_out.pack(side="left", fill="x", expand=True)
+            ttk.Button(orow, text="浏览…",
+                       command=lambda: self.pick_dir(self.e_ch_out)).pack(side="left", padx=(8, 0))
 
-            row3 = ttk.Frame(cov)
-            row3.pack(fill="x", padx=8, pady=(4, 8))
+            row3 = tk.Frame(out, bg="white")
+            row3.pack(fill="x", pady=(0, 10))
             self.v_pdf2 = tk.BooleanVar(value=True)
             self.v_open2 = tk.BooleanVar(value=True)
-            ttk.Checkbutton(row3, text="顺便编译 PDF", variable=self.v_pdf2, style="Toolbutton").pack(side="left")
-            ttk.Checkbutton(row3, text="完成后打开输出文件夹", variable=self.v_open2, style="Toolbutton").pack(side="left", padx=18)
-            ttk.Label(row3, text="（点右下角“生成大报告”）", style="Sub.TLabel").pack(side="right")
+            Toggle(row3, "顺便编译 PDF", self.v_pdf2).pack(side="left")
+            Toggle(row3, "完成后打开输出文件夹", self.v_open2).pack(side="left", padx=24)
+            ttk.Label(row3, text="点右下角「生成大报告」开始",
+                      style="Muted.TLabel").pack(side="right")
 
         def _tab_env(self):
-            f = ttk.Frame(self.nb, padding=10)
-            self.nb.add(f, text="③ 环境与说明")
-            wrap = ttk.Frame(f)
+            f = tk.Frame(self.nb, bg="white", padx=2, pady=2)
+            self.nb.add(f, text="③  环境与说明")
+            body = self._section(f, "环境与使用说明", "下面的信息自动生成，随时可用「重新检测环境」刷新")
+            wrap, inner = self._bordered(body, bg="#FBFCFD")
             wrap.pack(fill="both", expand=True)
-            self.env_text = tk.Text(wrap, wrap="word", font=("Microsoft YaHei UI", 9), height=14, width=70,
-                                    bg="white", relief="flat", padx=10, pady=8)
-            env_sb = ttk.Scrollbar(wrap, command=self.env_text.yview)
+            self.env_text = tk.Text(inner, wrap="word", font=(FONT, 9), height=16, width=70,
+                                    bg="#FBFCFD", fg=INK, relief="flat", padx=14, pady=12,
+                                    borderwidth=0, highlightthickness=0, spacing1=2, spacing3=3)
+            env_sb = ttk.Scrollbar(inner, command=self.env_text.yview,
+                                   style="Slim.Vertical.TScrollbar")
             self.env_text.configure(yscrollcommand=env_sb.set)
             env_sb.pack(side="right", fill="y")
             self.env_text.pack(side="left", fill="both", expand=True)
-            bar = ttk.Frame(f)
-            bar.pack(fill="x", pady=(8, 0))
-            ttk.Button(bar, text="重新检测环境", command=self.check_env).pack(side="left")
-            ttk.Button(bar, text="打开 MiKTeX 下载页", command=self.open_miktex).pack(side="left", padx=8)
+
+            bar = tk.Frame(f, bg="white")
+            bar.pack(fill="x", pady=(10, 8))
+            ttk.Button(bar, text="重新检测环境", style="Soft.TButton",
+                       command=self.check_env).pack(side="left")
+            ttk.Button(bar, text="打开 MiKTeX 下载页",
+                       command=self.open_miktex).pack(side="left", padx=8)
             ttk.Button(bar, text="保存日志", command=self.save_log).pack(side="left")
-            ttk.Button(bar, text="打开输出文件夹", command=self.open_out).pack(side="left", padx=8)
+            ttk.Button(bar, text="打开输出文件夹", style="Ghost.TButton",
+                       command=self.open_out).pack(side="left", padx=8)
             self._fill_env_text()
 
-        # ---------------- 文本 ---------------- #
+    # ---------------- 文本 ---------------- #
         def _fill_env_text(self):
             from pbltex.toolchain import find_xelatex, xelatex_version
             exe = find_xelatex()
@@ -529,9 +790,9 @@ def launch_gui(preload=None) -> int:
                 "    每人的一份稿件 = 章里的一个一级标题（1. 题目、2. 题目…），",
                 "    稿件内部自己的标题依次降一级（1.1 / 1.1.1），编号在每个章内从 1. 重新开始；",
                 "    自动生成封面、目录、分章清单，参考文献跨文件去重并重新编号。",
-                "  · 封面：照 23 级 Case 报告样式（校徽 + “2023级××组PBL学习 / 学习报告 / Case：…”",
-                "    + Tutor / PBL小组主席 / 书记 / 成员）；字号：首行一号、次行小一、Case 小初、",
-                "    小组构成三号；标题行距 3 倍、小组构成 1.5 倍；Case 名由作者填（只填名称会自动补“Case：”）。",
+                "  · 封面：照 23 级 Case 报告样式（“2023级××组PBL学习 / 学习报告 / Case：…”",
+                "    + Tutor / PBL小组主席 / 书记 / 成员）；封面图片默认留空（不放校徽，避免版权问题），",
+                "    需要时自己选一张；字号：首行一号、次行小一、Case 小初、小组构成三号（1.5 倍行距）。",
                 "  · 表格自动适配：按内容取自然宽度、或在版心内折行、或整体等比缩放，不会超出正文宽度；",
                 "  · 引用：正文 [1]、[2-3] 直接排成上标编号（GB/T 7714—2015 顺序编码制），",
                 "    不依赖两遍编译，所以不会再出现 [?,?,?]。",
@@ -714,7 +975,10 @@ def launch_gui(preload=None) -> int:
             for f in self._pick_docx():
                 if f not in self.single_files:
                     self.single_files.append(f)
-                    self.tv_single.insert("", "end", iid=f, values=(f, "待转换"))
+                    tag = "odd" if len(self.single_files) % 2 == 0 else ""
+                    self.tv_single.insert("", "end", iid=f, values=(f, "待转换"),
+                                          tags=(tag,) if tag else ())
+            self._update_hints()
 
         def add_single_folder(self):
             d = filedialog.askdirectory(title="选择存放 Word 稿件的文件夹")
@@ -725,7 +989,10 @@ def launch_gui(preload=None) -> int:
                     p = os.path.join(d, name)
                     if p not in self.single_files:
                         self.single_files.append(p)
-                        self.tv_single.insert("", "end", iid=p, values=(p, "待转换"))
+                        tag = "odd" if len(self.single_files) % 2 == 0 else ""
+                        self.tv_single.insert("", "end", iid=p, values=(p, "待转换"),
+                                              tags=(tag,) if tag else ())
+            self._update_hints()
 
         def remove_single(self):
             for item in self.tv_single.selection():
@@ -733,11 +1000,13 @@ def launch_gui(preload=None) -> int:
                 if vals and vals[0] in self.single_files:
                     self.single_files.remove(vals[0])
                 self.tv_single.delete(item)
+            self._update_hints()
 
         def clear_single(self):
             self.single_files.clear()
             for item in self.tv_single.get_children():
                 self.tv_single.delete(item)
+            self._update_hints()
 
         def pick_dir(self, entry):
             d = filedialog.askdirectory(title="选择输出目录")
@@ -795,6 +1064,19 @@ def launch_gui(preload=None) -> int:
 
             self.run_job("单份转换", job)
 
+        def _update_hints(self):
+            try:
+                if self.single_files:
+                    self.hint_single.place_forget()
+                else:
+                    self.hint_single.place(relx=0.5, rely=0.58, anchor="center")
+                if self.chapter_items:
+                    self.hint_ch.place_forget()
+                else:
+                    self.hint_ch.place(relx=0.5, rely=0.58, anchor="center")
+            except Exception:  # noqa: BLE001
+                pass
+
         # ---------------- 四章：文件管理 ---------------- #
         def _auto_title(self, path):
             """自动识别的一级标题（缓存），仅用于界面展示。"""
@@ -828,8 +1110,11 @@ def launch_gui(preload=None) -> int:
                 shown = override or self._auto_title(path)
                 if override:
                     shown = "✎ " + shown
+                tag = "odd" if i % 2 == 1 else ""
                 self.tv_ch.insert("", "end", iid=str(i),
-                                  values=(i + 1, os.path.basename(path), chap_name, shown))
+                                  values=(i + 1, os.path.basename(path), chap_name, shown),
+                                  tags=(tag,) if tag else ())
+            self._update_hints()
             keep = [x for x in sel if x in self.tv_ch.get_children()]
             if keep:
                 self.tv_ch.selection_set(keep)
