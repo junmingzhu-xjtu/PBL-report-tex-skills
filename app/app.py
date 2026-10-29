@@ -20,7 +20,7 @@ import time
 import traceback
 
 APP_NAME = "PBL 大报告生成器"
-APP_VERSION = "1.7.0"
+APP_VERSION = "1.8.0"
 LOG_FILE = os.path.join(tempfile.gettempdir(), "pbl_report_gui.log")
 
 
@@ -247,9 +247,14 @@ def launch_gui(preload=None) -> int:
 
         def _on_inner(self, _e):
             self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+            h = max(self.inner.winfo_reqheight(), self.canvas.winfo_height())
+            self.canvas.itemconfigure(self._win, height=h)
 
         def _on_canvas(self, event):
             self.canvas.itemconfigure(self._win, width=event.width)
+            # 让内容至少有 canvas 那么高，列表才能“吃掉”多余空间
+            need = max(self.inner.winfo_reqheight(), event.height)
+            self.canvas.itemconfigure(self._win, height=need)
 
         def _wheel(self, event):
             self.canvas.yview_scroll(int(-event.delta / 120), "units")
@@ -288,8 +293,8 @@ def launch_gui(preload=None) -> int:
             lbl.bind("<Enter>", enter)
             lbl.bind("<Leave>", leave)
             self._tabs.append({"frame": frame, "label": lbl, "bar": bar})
-            frame.place(in_=self._body, x=0, y=0, relwidth=1, relheight=1)
-            frame.place_forget()
+            frame.pack(in_=self._body, fill="both", expand=True)
+            frame.pack_forget()
             return idx
 
         def select(self, idx=None):
@@ -303,9 +308,9 @@ def launch_gui(preload=None) -> int:
                 tab["label"].configure(fg=(ACCENT if on else SUB_TXT))
                 tab["bar"].configure(bg=(ACCENT if on else "white"))
                 if on:
-                    tab["frame"].place(in_=self._body, x=0, y=0, relwidth=1, relheight=1)
+                    tab["frame"].pack(in_=self._body, fill="both", expand=True)
                 else:
-                    tab["frame"].place_forget()
+                    tab["frame"].pack_forget()
             for cb in list(self._callbacks):
                 try:
                     cb(None)
@@ -361,8 +366,8 @@ def launch_gui(preload=None) -> int:
         def __init__(self):
             super().__init__()
             self.title("%s  v%s" % (APP_NAME, APP_VERSION))
-            self.geometry("1200x900")
-            self.minsize(1060, 720)
+            self.geometry("1320x920")
+            self.minsize(1120, 720)
             self.configure(bg="white")
             self.q = queue.Queue()
             self.busy = False
@@ -568,28 +573,41 @@ def launch_gui(preload=None) -> int:
             sf = ScrollFrame(self.nb)
             self.nb.add(sf, text="①  单份转换")
             f = sf.inner
+            f.configure(padx=14, pady=10)
+            f.columnconfigure(0, weight=1)
+            f.rowconfigure(2, weight=1)
 
-            body = self._section(f, "待转换的稿件", "支持 .docx 与 .pdf，每份稿件输出独立文件夹")
-            wrap, inner = self._bordered(body)
-            wrap.pack(fill="both", expand=True)
+            # ---- 稿件列表 ----
+            head = tk.Frame(f, bg="white")
+            head.grid(row=0, column=0, sticky="we", pady=(0, 8))
+            tk.Frame(head, bg=ACCENT, width=3, height=15).pack(side="left", padx=(0, 9))
+            tk.Label(head, text="待转换的稿件", bg="white", fg=INK,
+                     font=(FONT, 12, "bold")).pack(side="left")
+            tk.Label(head, text=".docx 或 .pdf　·　每份稿件独立输出一个文件夹", bg="white",
+                     fg=SUB_TXT, font=(FONT, 9)).pack(side="left", padx=(10, 0))
+
+            wrap = tk.Frame(f, bg=LINE, padx=1, pady=1)
+            wrap.grid(row=2, column=0, sticky="nsew")
+            inner = tk.Frame(wrap, bg="white")
+            inner.pack(fill="both", expand=True)
             cols = ("file", "status")
-            self.tv_single = ttk.Treeview(inner, columns=cols, show="headings", height=4)
+            self.tv_single = ttk.Treeview(inner, columns=cols, show="headings")
             self.tv_single.heading("file", text="文件")
             self.tv_single.heading("status", text="状态")
-            self.tv_single.column("file", width=620, anchor="w")
-            self.tv_single.column("status", width=140, anchor="center")
+            self.tv_single.column("file", width=760, anchor="w")
+            self.tv_single.column("status", width=150, anchor="center")
             self.tv_single.tag_configure("odd", background="#FCFCFD")
             s1 = ttk.Scrollbar(inner, command=self.tv_single.yview,
                                style="Slim.Vertical.TScrollbar")
             self.tv_single.configure(yscrollcommand=s1.set)
             s1.pack(side="right", fill="y")
             self.tv_single.pack(side="left", fill="both", expand=True)
-            self.hint_single = tk.Label(inner, text="还没有添加文件　·　点下面「添加文件…」或直接把 Word / PDF 拖进来",
+            self.hint_single = tk.Label(inner, text="还没有添加文件　·　点下面「添加文件…」，或直接把 Word / PDF 拖进来",
                                         bg="white", fg="#98A2B3", font=(FONT, 9))
-            self.hint_single.place(relx=0.5, rely=0.55, anchor="center")
+            self.hint_single.place(relx=0.5, rely=0.5, anchor="center")
 
             bar = tk.Frame(f, bg="white")
-            bar.pack(fill="x", pady=(6, 0))
+            bar.grid(row=3, column=0, sticky="we", pady=(10, 0))
             ttk.Button(bar, text="添加文件…", style="Soft.TButton",
                        command=self.add_single_files).pack(side="left")
             ttk.Button(bar, text="添加整个文件夹…",
@@ -598,19 +616,24 @@ def launch_gui(preload=None) -> int:
                        command=self.remove_single).pack(side="left")
             ttk.Button(bar, text="清空", style="Ghost.TButton",
                        command=self.clear_single).pack(side="left", padx=4)
+            ttk.Label(bar, text="转换完成后文件名带「-提交版 / -排版版」",
+                      style="Muted.TLabel").pack(side="right")
 
-            opt = self._section(f, "输出与选项")
-            row = tk.Frame(opt, bg="white")
-            row.pack(fill="x", pady=(0, 8))
-            ttk.Label(row, text="输出目录", style="Field.TLabel").pack(side="left", padx=(0, 8))
-            self.e_single_out = ttk.Entry(row, style="Field.TEntry")
+            # ---- 输出与选项（底栏）----
+            tk.Frame(f, bg=LINE, height=1).grid(row=4, column=0, sticky="we", pady=(14, 12))
+            opt = tk.Frame(f, bg="white")
+            opt.grid(row=5, column=0, sticky="we")
+            opt.columnconfigure(1, weight=1)
+
+            ttk.Label(opt, text="输出目录", style="Field.TLabel").grid(row=0, column=0, sticky="w")
+            self.e_single_out = ttk.Entry(opt, style="Field.TEntry")
             self.e_single_out.insert(0, default_outdir())
-            self.e_single_out.pack(side="left", fill="x", expand=True)
-            ttk.Button(row, text="浏览…", command=lambda: self.pick_dir(self.e_single_out)
-                       ).pack(side="left", padx=(8, 0))
+            self.e_single_out.grid(row=0, column=1, sticky="we", padx=(10, 8))
+            ttk.Button(opt, text="浏览…", command=lambda: self.pick_dir(self.e_single_out)
+                       ).grid(row=0, column=2, sticky="e")
 
             row2 = tk.Frame(opt, bg="white")
-            row2.pack(fill="x", pady=(0, 10))
+            row2.grid(row=1, column=0, columnspan=3, sticky="we", pady=(12, 6))
             self.v_pdf = tk.BooleanVar(value=True)
             self.v_open = tk.BooleanVar(value=True)
             Toggle(row2, "同时出两种 PDF（提交版 + 排版版）", self.v_pdf).pack(side="left")
@@ -750,6 +773,156 @@ def launch_gui(preload=None) -> int:
             Toggle(row3, "完成后打开输出文件夹", self.v_open2).pack(side="left", padx=24)
             ttk.Label(row3, text="点右下角「生成大报告」开始",
                       style="Muted.TLabel").pack(side="right")
+
+        def _tab_chapters(self):
+            sf = ScrollFrame(self.nb)
+            self.nb.add(sf, text="②  合并四章")
+            f = sf.inner
+            f.configure(padx=14, pady=10)
+            f.columnconfigure(0, weight=1)
+            f.columnconfigure(1, minsize=470, weight=0)
+            f.rowconfigure(0, weight=1)
+
+            # ================= 左：稿件与分章 =================
+            left = tk.Frame(f, bg="white")
+            left.grid(row=0, column=0, sticky="nsew", padx=(0, 18))
+            left.columnconfigure(0, weight=1)
+            left.rowconfigure(2, weight=1)
+
+            head = tk.Frame(left, bg="white")
+            head.grid(row=0, column=0, sticky="we", pady=(0, 8))
+            tk.Frame(head, bg=ACCENT, width=3, height=15).pack(side="left", padx=(0, 9))
+            tk.Label(head, text="稿件与分章", bg="white", fg=INK,
+                     font=(FONT, 12, "bold")).pack(side="left")
+            tk.Label(head, text="选中行分配章节　·　双击可改一级标题", bg="white",
+                     fg=SUB_TXT, font=(FONT, 9)).pack(side="left", padx=(10, 0))
+
+            wrap = tk.Frame(left, bg=LINE, padx=1, pady=1)
+            wrap.grid(row=2, column=0, sticky="nsew")
+            inner = tk.Frame(wrap, bg="white")
+            inner.pack(fill="both", expand=True)
+            cols = ("idx", "name", "chapter", "title")
+            self.tv_ch = ttk.Treeview(inner, columns=cols, show="headings")
+            self.tv_ch.heading("idx", text="#")
+            self.tv_ch.heading("name", text="文件名")
+            self.tv_ch.heading("chapter", text="章节")
+            self.tv_ch.heading("title", text="一级标题（双击可改）")
+            self.tv_ch.column("idx", width=44, anchor="center")
+            self.tv_ch.column("name", width=280, anchor="w")
+            self.tv_ch.column("chapter", width=106, anchor="center")
+            self.tv_ch.column("title", width=330, anchor="w")
+            self.tv_ch.tag_configure("odd", background="#FCFCFD")
+            s2 = ttk.Scrollbar(inner, command=self.tv_ch.yview,
+                               style="Slim.Vertical.TScrollbar")
+            self.tv_ch.configure(yscrollcommand=s2.set)
+            s2.pack(side="right", fill="y")
+            self.tv_ch.pack(side="left", fill="both", expand=True)
+            self.tv_ch.bind("<Double-1>", self._edit_section_title)
+            self.hint_ch = tk.Label(inner, text="还没有添加稿件　·　添加后点「自动分章」，再核对章节",
+                                    bg="white", fg="#98A2B3", font=(FONT, 9))
+            self.hint_ch.place(relx=0.5, rely=0.5, anchor="center")
+
+            bar = tk.Frame(left, bg="white")
+            bar.grid(row=3, column=0, sticky="we", pady=(10, 0))
+            ttk.Button(bar, text="添加文件…", style="Soft.TButton",
+                       command=self.add_chapter_files).pack(side="left")
+            ttk.Button(bar, text="添加整个文件夹…",
+                       command=self.add_chapter_folder).pack(side="left", padx=8)
+            ttk.Button(bar, text="移除所选", style="Ghost.TButton",
+                       command=self.remove_chapter).pack(side="left")
+            ttk.Button(bar, text="自动分章", style="Soft.TButton",
+                       command=self.auto_assign).pack(side="left", padx=(20, 0))
+            ttk.Label(bar, text="可先猜后核", style="Muted.TLabel"
+                      ).pack(side="left", padx=8)
+
+            bar2 = tk.Frame(left, bg="white")
+            bar2.grid(row=4, column=0, sticky="we", pady=(8, 0))
+            ttk.Label(bar2, text="选中行分配到", style="Field.TLabel").pack(side="left", padx=(0, 8))
+            for i, name in enumerate(CHAPTER_NAMES):
+                ttk.Button(bar2, text=name, style="Soft.TButton",
+                           command=lambda k=i: self.assign_chapter(k)).pack(side="left", padx=(0, 6))
+            ttk.Button(bar2, text="不收录", style="Ghost.TButton",
+                       command=lambda: self.assign_chapter(-1)).pack(side="left", padx=(2, 0))
+
+            # ================= 右：封面 + 输出 =================
+            right = tk.Frame(f, bg="white", width=470)
+            right.grid(row=0, column=1, sticky="nsew")
+            right.grid_propagate(False)
+            right.columnconfigure(0, weight=1)
+
+            h2 = tk.Frame(right, bg="white")
+            h2.grid(row=0, column=0, sticky="we", pady=(0, 8))
+            tk.Frame(h2, bg=ACCENT, width=3, height=15).pack(side="left", padx=(0, 9))
+            tk.Label(h2, text="封面信息", bg="white", fg=INK,
+                     font=(FONT, 12, "bold")).pack(side="left")
+            tk.Label(h2, text="组员用空格分隔", bg="white", fg=SUB_TXT,
+                     font=(FONT, 9)).pack(side="left", padx=(10, 0))
+
+            form = tk.Frame(right, bg="white")
+            form.grid(row=1, column=0, sticky="nsew")
+            form.columnconfigure(1, weight=1)
+
+            def make_row(label, value, row, buttons=None):
+                ttk.Label(form, text=label, style="Field.TLabel").grid(
+                    row=row, column=0, sticky="w", pady=3, padx=(0, 12))
+                entry = ttk.Entry(form, style="Field.TEntry")
+                entry.insert(0, value)
+                if buttons:
+                    holder = tk.Frame(form, bg="white")
+                    holder.grid(row=row, column=1, sticky="we", pady=4)
+                    entry.pack(in_=holder, side="left", fill="x", expand=True)
+                    for text, cmd, style in buttons:
+                        ttk.Button(holder, text=text, style=style, command=cmd).pack(
+                            side="left", padx=(8, 0))
+                else:
+                    entry.grid(row=row, column=1, sticky="we", pady=3)
+                return entry
+
+            self.e_cov_line1 = make_row("首行", "2023级11组PBL学习", 0)
+            self.e_cov_line2 = make_row("次行", "学习报告", 1)
+            self.e_cov_case = make_row("Case（作者填）", "Case 1：难缠的脖子痛", 2)
+            self.e_cov_tutor = make_row("Tutor", "马凯歌", 3)
+            self.e_cov_chair = make_row("主席", "朱俊铭", 4)
+            self.e_cov_sec = make_row("书记", "郭育恒", 5)
+            self.e_cov_date = make_row("日期", time.strftime("%Y 年 %m 月"), 6)
+            self.e_cov_members = make_row(
+                "组员", "叶瑞林 张欣仪 韩曦 任欣萌 王思源 于子轩 牛海华 韩畅", 7)
+            ttk.Label(form, text="封面图片", style="Field.TLabel").grid(
+                row=8, column=0, sticky="w", pady=4, padx=(0, 12))
+            logo_row = tk.Frame(form, bg="white")
+            logo_row.grid(row=8, column=1, sticky="we", pady=4)
+            self.e_cov_logo = ttk.Entry(logo_row, style="Field.TEntry")
+            self.e_cov_logo.pack(side="left", fill="x", expand=True)
+            self.e_cov_logo.insert(0, "")
+            ttk.Button(logo_row, text="浏览…", style="Soft.TButton", width=7,
+                       command=self.pick_cover_logo).pack(side="left", padx=(8, 0))
+            ttk.Label(form, text="默认留空＝不加校徽 / 院徽", style="Muted.TLabel").grid(
+                row=9, column=1, sticky="w", pady=(0, 2))
+
+            tk.Frame(right, bg=LINE, height=1).grid(row=2, column=0, sticky="we", pady=(16, 12))
+
+            h3 = tk.Frame(right, bg="white")
+            h3.grid(row=3, column=0, sticky="we", pady=(0, 8))
+            tk.Frame(h3, bg=ACCENT, width=3, height=15).pack(side="left", padx=(0, 9))
+            tk.Label(h3, text="输出", bg="white", fg=INK,
+                     font=(FONT, 12, "bold")).pack(side="left")
+
+            orow = tk.Frame(right, bg="white")
+            orow.grid(row=4, column=0, sticky="we")
+            orow.columnconfigure(1, weight=1)
+            ttk.Label(orow, text="目录", style="Field.TLabel").grid(row=0, column=0, sticky="w")
+            self.e_ch_out = ttk.Entry(orow, style="Field.TEntry")
+            self.e_ch_out.insert(0, default_outdir())
+            self.e_ch_out.grid(row=0, column=1, sticky="we", padx=(10, 8))
+            ttk.Button(orow, text="浏览…",
+                       command=lambda: self.pick_dir(self.e_ch_out)).grid(row=0, column=2, sticky="e")
+
+            row3 = tk.Frame(right, bg="white")
+            row3.grid(row=5, column=0, sticky="we", pady=(12, 0))
+            self.v_pdf2 = tk.BooleanVar(value=True)
+            self.v_open2 = tk.BooleanVar(value=True)
+            Toggle(row3, "顺便编译 PDF", self.v_pdf2).pack(side="left")
+            Toggle(row3, "完成后打开文件夹", self.v_open2).pack(side="left", padx=20)
 
         def _tab_env(self):
             f = tk.Frame(self.nb, bg="white", padx=2, pady=2)
@@ -1270,8 +1443,8 @@ def launch_gui(preload=None) -> int:
             """按屏幕大小摆好窗口：小屏笔记本上不会跑出桌面"""
             try:
                 sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
-                w = max(min(1180, sw - 80), 1000)
-                h = max(min(900, sh - 110), 640)
+                w = max(min(1360, sw - 60), 1120)
+                h = max(min(940, sh - 90), 680)
                 x = max((sw - w) // 2, 0)
                 y = max((sh - h) // 3, 0)
                 self.geometry("%dx%d+%d+%d" % (w, h, x, y))
