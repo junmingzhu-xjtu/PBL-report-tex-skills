@@ -20,7 +20,7 @@ import time
 import traceback
 
 APP_NAME = "PBL 大报告生成器"
-APP_VERSION = "1.8.0"
+APP_VERSION = "1.9.0"
 LOG_FILE = os.path.join(tempfile.gettempdir(), "pbl_report_gui.log")
 
 
@@ -646,138 +646,6 @@ def launch_gui(preload=None) -> int:
             sf = ScrollFrame(self.nb)
             self.nb.add(sf, text="②  合并四章")
             f = sf.inner
-
-            body = self._section(f, "稿件与分章", "选中行后点下方章节按钮分配；双击可改一级标题")
-            wrap, inner = self._bordered(body)
-            wrap.pack(fill="both", expand=True)
-            cols = ("idx", "name", "chapter", "title")
-            self.tv_ch = ttk.Treeview(inner, columns=cols, show="headings", height=2)
-            self.tv_ch.heading("idx", text="#")
-            self.tv_ch.heading("name", text="文件名")
-            self.tv_ch.heading("chapter", text="章节")
-            self.tv_ch.heading("title", text="一级标题（双击可改）")
-            self.tv_ch.column("idx", width=44, anchor="center")
-            self.tv_ch.column("name", width=330, anchor="w")
-            self.tv_ch.column("chapter", width=120, anchor="center")
-            self.tv_ch.column("title", width=380, anchor="w")
-            self.tv_ch.tag_configure("odd", background="#FCFCFD")
-            s2 = ttk.Scrollbar(inner, command=self.tv_ch.yview,
-                               style="Slim.Vertical.TScrollbar")
-            self.tv_ch.configure(yscrollcommand=s2.set)
-            s2.pack(side="right", fill="y")
-            self.tv_ch.pack(side="left", fill="both", expand=True)
-            self.hint_ch = tk.Label(inner, text="还没有添加稿件　·　添加后点「自动分章」，再核对章节",
-                                    bg="white", fg="#98A2B3", font=(FONT, 9))
-            self.hint_ch.place(relx=0.5, rely=0.55, anchor="center")
-            self.tv_ch.bind("<Double-1>", self._edit_section_title)
-
-            bar = tk.Frame(f, bg="white")
-            bar.pack(fill="x", pady=(10, 0))
-            ttk.Button(bar, text="添加文件…", style="Soft.TButton",
-                       command=self.add_chapter_files).pack(side="left")
-            ttk.Button(bar, text="添加整个文件夹…",
-                       command=self.add_chapter_folder).pack(side="left", padx=8)
-            ttk.Button(bar, text="移除所选", style="Ghost.TButton",
-                       command=self.remove_chapter).pack(side="left")
-            ttk.Button(bar, text="自动分章", style="Soft.TButton",
-                       command=self.auto_assign).pack(side="left", padx=(20, 0))
-            ttk.Label(bar, text="按题目关键词先猜一遍，再逐份核对", style="Muted.TLabel"
-                      ).pack(side="left", padx=10)
-
-            bar2 = tk.Frame(f, bg="white")
-            bar2.pack(fill="x", pady=(6, 0))
-            ttk.Label(bar2, text="选中行分配到", style="Field.TLabel").pack(side="left", padx=(0, 8))
-            for i, name in enumerate(CHAPTER_NAMES):
-                ttk.Button(bar2, text=name, style="Soft.TButton",
-                           command=lambda k=i: self.assign_chapter(k)).pack(side="left", padx=(0, 6))
-            ttk.Button(bar2, text="不收录", style="Ghost.TButton",
-                       command=lambda: self.assign_chapter(-1)).pack(side="left", padx=(2, 0))
-
-            # ---------------- 封面 ----------------
-            cov = self._section(f, "封面信息", "校徽 + 三行标题 + Tutor / 主席 / 书记 / 成员（组员用空格分隔）")
-            cg = tk.Frame(cov, bg="white")
-            cg.pack(fill="x")
-            for col, w in ((1, 1), (3, 1)):
-                cg.columnconfigure(col, weight=w)
-
-            def lab(row, col, text, pad=(0, 0)):
-                ttk.Label(cg, text=text, style="Field.TLabel").grid(
-                    row=row, column=col, sticky="w", padx=pad, pady=2)
-
-            lab(0, 0, "首行")
-            self.e_cov_line1 = ttk.Entry(cg, style="Field.TEntry")
-            self.e_cov_line1.insert(0, "2023级11组PBL学习")
-            self.e_cov_line1.grid(row=0, column=1, sticky="we", padx=6, pady=3)
-            lab(0, 2, "次行", (14, 0))
-            self.e_cov_line2 = ttk.Entry(cg, style="Field.TEntry")
-            self.e_cov_line2.insert(0, "学习报告")
-            self.e_cov_line2.grid(row=0, column=3, sticky="we", padx=6, pady=3)
-
-            lab(1, 0, "Case（作者填）")
-            self.e_cov_case = ttk.Entry(cg, style="Field.TEntry")
-            self.e_cov_case.insert(0, "Case 1：难缠的脖子痛")
-            self.e_cov_case.grid(row=1, column=1, sticky="we", padx=6, pady=3)
-            lab(1, 2, "Tutor", (14, 0))
-            self.e_cov_tutor = ttk.Entry(cg, style="Field.TEntry")
-            self.e_cov_tutor.insert(0, "马凯歌")
-            self.e_cov_tutor.grid(row=1, column=3, sticky="we", padx=6, pady=3)
-
-            lab(2, 0, "主席")
-            f_chair = tk.Frame(cg, bg="white")
-            f_chair.grid(row=2, column=1, sticky="we", padx=6, pady=3)
-            self.e_cov_chair = ttk.Entry(f_chair, style="Field.TEntry")
-            self.e_cov_chair.insert(0, "朱俊铭")
-            self.e_cov_chair.pack(side="left", fill="x", expand=True)
-            ttk.Label(f_chair, text="书记", style="Field.TLabel").pack(side="left", padx=(10, 6))
-            self.e_cov_sec = ttk.Entry(f_chair, style="Field.TEntry")
-            self.e_cov_sec.insert(0, "郭育恒")
-            self.e_cov_sec.pack(side="left", fill="x", expand=True)
-            lab(2, 2, "日期", (14, 0))
-            self.e_cov_date = ttk.Entry(cg, style="Field.TEntry")
-            self.e_cov_date.insert(0, time.strftime("%Y 年 %m 月"))
-            self.e_cov_date.grid(row=2, column=3, sticky="we", padx=6, pady=3)
-
-            lab(3, 0, "组员")
-            self.e_cov_members = ttk.Entry(cg, style="Field.TEntry")
-            self.e_cov_members.insert(0, "叶瑞林 张欣仪 韩曦 任欣萌 王思源 于子轩 牛海华 韩畅")
-            self.e_cov_members.grid(row=3, column=1, columnspan=3, sticky="we", padx=6, pady=3)
-
-
-            lrow = tk.Frame(cov, bg="white")
-            lrow.pack(fill="x", pady=(6, 0))
-            ttk.Label(lrow, text="封面图片（可留空）", style="Field.TLabel").pack(side="left", padx=(0, 8))
-            self.e_cov_logo = ttk.Entry(lrow, style="Field.TEntry")
-            self.e_cov_logo.insert(0, "")
-            self.e_cov_logo.pack(side="left", fill="x", expand=True)
-            ttk.Button(lrow, text="浏览…",
-                       command=self.pick_cover_logo).pack(side="left", padx=(8, 0))
-            ttk.Label(lrow, text="默认不加校徽/院徽，需要时自己选一张",
-                      style="Muted.TLabel").pack(side="left", padx=(10, 0))
-
-            # ---------------- 输出 ----------------
-            out = self._section(f, "输出")
-            orow = tk.Frame(out, bg="white")
-            orow.pack(fill="x", pady=(0, 8))
-            ttk.Label(orow, text="输出目录", style="Field.TLabel").pack(side="left", padx=(0, 8))
-            self.e_ch_out = ttk.Entry(orow, style="Field.TEntry")
-            self.e_ch_out.insert(0, default_outdir())
-            self.e_ch_out.pack(side="left", fill="x", expand=True)
-            ttk.Button(orow, text="浏览…",
-                       command=lambda: self.pick_dir(self.e_ch_out)).pack(side="left", padx=(8, 0))
-
-            row3 = tk.Frame(out, bg="white")
-            row3.pack(fill="x", pady=(0, 10))
-            self.v_pdf2 = tk.BooleanVar(value=True)
-            self.v_open2 = tk.BooleanVar(value=True)
-            Toggle(row3, "顺便编译 PDF", self.v_pdf2).pack(side="left")
-            Toggle(row3, "完成后打开输出文件夹", self.v_open2).pack(side="left", padx=24)
-            ttk.Label(row3, text="点右下角「生成大报告」开始",
-                      style="Muted.TLabel").pack(side="right")
-
-        def _tab_chapters(self):
-            sf = ScrollFrame(self.nb)
-            self.nb.add(sf, text="②  合并四章")
-            f = sf.inner
             f.configure(padx=14, pady=10)
             f.columnconfigure(0, weight=1)
             f.columnconfigure(1, minsize=470, weight=0)
@@ -794,7 +662,7 @@ def launch_gui(preload=None) -> int:
             tk.Frame(head, bg=ACCENT, width=3, height=15).pack(side="left", padx=(0, 9))
             tk.Label(head, text="稿件与分章", bg="white", fg=INK,
                      font=(FONT, 12, "bold")).pack(side="left")
-            tk.Label(head, text="选中行分配章节　·　双击可改一级标题", bg="white",
+            tk.Label(head, text="选中行分配章节　·　▲▼ 调章内顺序　·　双击改一级标题", bg="white",
                      fg=SUB_TXT, font=(FONT, 9)).pack(side="left", padx=(10, 0))
 
             wrap = tk.Frame(left, bg=LINE, padx=1, pady=1)
@@ -803,11 +671,11 @@ def launch_gui(preload=None) -> int:
             inner.pack(fill="both", expand=True)
             cols = ("idx", "name", "chapter", "title")
             self.tv_ch = ttk.Treeview(inner, columns=cols, show="headings")
-            self.tv_ch.heading("idx", text="#")
+            self.tv_ch.heading("idx", text="序号")
             self.tv_ch.heading("name", text="文件名")
             self.tv_ch.heading("chapter", text="章节")
             self.tv_ch.heading("title", text="一级标题（双击可改）")
-            self.tv_ch.column("idx", width=44, anchor="center")
+            self.tv_ch.column("idx", width=64, anchor="center")
             self.tv_ch.column("name", width=280, anchor="w")
             self.tv_ch.column("chapter", width=106, anchor="center")
             self.tv_ch.column("title", width=330, anchor="w")
@@ -818,6 +686,8 @@ def launch_gui(preload=None) -> int:
             s2.pack(side="right", fill="y")
             self.tv_ch.pack(side="left", fill="both", expand=True)
             self.tv_ch.bind("<Double-1>", self._edit_section_title)
+            self.tv_ch.bind("<Alt-Up>", lambda _e: self.move_chapter_item(-1))
+            self.tv_ch.bind("<Alt-Down>", lambda _e: self.move_chapter_item(1))
             self.hint_ch = tk.Label(inner, text="还没有添加稿件　·　添加后点「自动分章」，再核对章节",
                                     bg="white", fg="#98A2B3", font=(FONT, 9))
             self.hint_ch.place(relx=0.5, rely=0.5, anchor="center")
@@ -826,23 +696,28 @@ def launch_gui(preload=None) -> int:
             bar.grid(row=3, column=0, sticky="we", pady=(10, 0))
             ttk.Button(bar, text="添加文件…", style="Soft.TButton",
                        command=self.add_chapter_files).pack(side="left")
-            ttk.Button(bar, text="添加整个文件夹…",
-                       command=self.add_chapter_folder).pack(side="left", padx=8)
-            ttk.Button(bar, text="移除所选", style="Ghost.TButton",
-                       command=self.remove_chapter).pack(side="left")
+            ttk.Button(bar, text="添加文件夹…",
+                       command=self.add_chapter_folder).pack(side="left", padx=(8, 0))
+            ttk.Button(bar, text="移除", style="Ghost.TButton",
+                       command=self.remove_chapter).pack(side="left", padx=(6, 0))
+            ttk.Button(bar, text="▼", style="Soft.TButton", width=3,
+                       command=lambda: self.move_chapter_item(1)).pack(side="right")
+            ttk.Button(bar, text="▲", style="Soft.TButton", width=3,
+                       command=lambda: self.move_chapter_item(-1)).pack(side="right", padx=(0, 4))
+            ttk.Label(bar, text="调章内顺序", style="Muted.TLabel").pack(
+                side="right", padx=(0, 8))
             ttk.Button(bar, text="自动分章", style="Soft.TButton",
-                       command=self.auto_assign).pack(side="left", padx=(20, 0))
-            ttk.Label(bar, text="可先猜后核", style="Muted.TLabel"
-                      ).pack(side="left", padx=8)
+                       command=self.auto_assign).pack(side="left", padx=(12, 0))
+
 
             bar2 = tk.Frame(left, bg="white")
             bar2.grid(row=4, column=0, sticky="we", pady=(8, 0))
-            ttk.Label(bar2, text="选中行分配到", style="Field.TLabel").pack(side="left", padx=(0, 8))
+            ttk.Label(bar2, text="分配章节", style="Field.TLabel").pack(side="left", padx=(0, 8))
             for i, name in enumerate(CHAPTER_NAMES):
                 ttk.Button(bar2, text=name, style="Soft.TButton",
-                           command=lambda k=i: self.assign_chapter(k)).pack(side="left", padx=(0, 6))
+                           command=lambda k=i: self.assign_chapter(k)).pack(side="left", padx=(0, 5))
             ttk.Button(bar2, text="不收录", style="Ghost.TButton",
-                       command=lambda: self.assign_chapter(-1)).pack(side="left", padx=(2, 0))
+                       command=lambda: self.assign_chapter(-1)).pack(side="left", padx=(4, 0))
 
             # ================= 右：封面 + 输出 =================
             right = tk.Frame(f, bg="white", width=470)
@@ -973,7 +848,9 @@ def launch_gui(preload=None) -> int:
                 "二、三步上手",
                 "  1. 只转自己那份：「① 单份转换」→ 添加 Word 文件 → 开始转换 → 结果在输出目录下各自子文件夹。",
                 "  2. 合成大报告：「② 合并四章大报告」→ 添加所有人的稿件 → 点“自动分章”（按题目关键词猜），",
-                "     再选中行用“→ 案例回顾 / 重大问题 / 次要问题 / 机制图”按钮核对修正 → 填标题组别 → 生成大报告。",
+                "     再选中行用“→ 案例回顾 / 重大问题 / 次要问题 / 机制图”按钮核对修正；",
+                "     章内先后顺序用「▲ / ▼」调整（也可 Alt+↑ / Alt+↓），章节本身的顺序固定不变，",
+                "     调好后填标题组别 → 生成大报告。",
                 "  3. 找不到 PDF？多半是没装 LaTeX。点“打开 MiKTeX 下载页”安装一次（约 250 MB），",
                 "     装完点“重新检测环境”，再重新生成即可。没装也能得到 .tex 源码，随时可补编译。",
                 "",
@@ -1272,25 +1149,63 @@ def launch_gui(preload=None) -> int:
                 self._title_cache[path] = title
             return self._title_cache.get(path, "")
 
+        def _display_order(self):
+            """章节顺序固定（案例回顾→重大问题→次要问题→机制图→不收录），章内按加入顺序。"""
+            def key(i):
+                row = self.chapter_items[i]
+                chap = row[1]
+                return (chap if chap >= 0 else 99, i)
+
+            return sorted(range(len(self.chapter_items)), key=key)
+
         def _refresh_ch_tree(self):
             sel = list(self.tv_ch.selection())
             for item in self.tv_ch.get_children():
                 self.tv_ch.delete(item)
-            for i, row in enumerate(self.chapter_items):
+            seq = {}
+            for pos, i in enumerate(self._display_order()):
+                row = self.chapter_items[i]
                 path, chap = row[0], row[1]
                 override = row[2] if len(row) > 2 else ""
                 chap_name = CHAPTER_NAMES[chap] if 0 <= chap < len(CHAPTER_NAMES) else "不收录"
+                seq[chap] = seq.get(chap, 0) + 1
                 shown = override or self._auto_title(path)
                 if override:
                     shown = "✎ " + shown
-                tag = "odd" if i % 2 == 1 else ""
+                tag = "odd" if pos % 2 == 1 else ""
                 self.tv_ch.insert("", "end", iid=str(i),
-                                  values=(i + 1, os.path.basename(path), chap_name, shown),
+                                  values=("%d.%d" % (chap + 1, seq[chap]) if chap >= 0 else "—",
+                                          os.path.basename(path), chap_name, shown),
                                   tags=(tag,) if tag else ())
             self._update_hints()
             keep = [x for x in sel if x in self.tv_ch.get_children()]
             if keep:
                 self.tv_ch.selection_set(keep)
+
+        def move_chapter_item(self, delta):
+            """在**同一章内部**把选中的行上移/下移；章节顺序本身不变。"""
+            sel = [int(x) for x in self.tv_ch.selection()]
+            if not sel:
+                self.status.configure(text="先选中一行，再点上移 / 下移")
+                return
+            i = sel[0]
+            if not (0 <= i < len(self.chapter_items)):
+                return
+            chap = self.chapter_items[i][1]
+            peers = [k for k in self._display_order()
+                     if self.chapter_items[k][1] == chap]
+            pos = peers.index(i)
+            new_pos = pos + delta
+            if not (0 <= new_pos < len(peers)):
+                self.status.configure(text="已经在%s的最%s了"
+                                      % ("该章" if chap >= 0 else "不收录", "前" if delta < 0 else "后"))
+                return
+            j = peers[new_pos]
+            self.chapter_items[i], self.chapter_items[j] = self.chapter_items[j], self.chapter_items[i]
+            self._refresh_ch_tree()
+            self.tv_ch.selection_set(str(j))
+            self.tv_ch.see(str(j))
+            self.status.configure(text="已移动：%s" % os.path.basename(self.chapter_items[j][0]))
 
         def _edit_section_title(self, event=None):
             """双击一行，改它在大报告里的一级标题。"""
