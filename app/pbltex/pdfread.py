@@ -249,7 +249,10 @@ def pdf_blocks(pdf_path, figdir, prefix="", log=None):
                     prev_bottom = line["bottom"]
                     continue
 
-                if para:
+                # 以 [1] [2] … 开头的行一律另起一段（参考文献一条一段）
+                if re.match(r"^\[\d+\]", txt.strip()):
+                    flush()
+                elif para:
                     gap = line["top"] - prev_bottom if prev_bottom is not None else 0
                     if line["size"] != para[-1]["size"] or gap > line["size"] * 1.15 + 5:
                         flush()

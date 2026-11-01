@@ -319,17 +319,29 @@ def _number_refs(file_refs):
     return out
 
 
+REF_HEAD_KEYS = ("参考文献", "参考资料", "参考文献资料", "引用文献", "主要文献",
+                 "文献参考", "References", "REFERENCES", "Bibliography")
+
+
+def _is_ref_heading(text: str) -> bool:
+    """参考文献小标题：各人的叫法不一样（参考文献/参考资料/References…）。"""
+    t = norm(text).replace(" ", "")
+    if not t:
+        return False
+    return any(k.replace(" ", "") in t for k in REF_HEAD_KEYS)
+
+
 def split_lead_and_refs(blocks):
     """拆出：开头标题/姓名行、正文块、参考文献条目、正文内的引用编号。"""
-    # 1) 参考文献：出现“参考文献”标题之后的所有条目（带不带 [n] 编号都收）
+    # 1) 参考文献：出现“参考文献/参考资料…”标题之后的所有条目（带不带 [n] 编号都收）
     refs = []
     kept = []
     in_refs = False
     for b in blocks:
-        if b[0] == "h" and "参考文献" in b[2]:
+        if b[0] == "h" and _is_ref_heading(b[2]):
             in_refs = True
             continue
-        if b[0] == "p" and b[1].strip() in ("参考文献", "主要参考文献", "References", "REFERENCES"):
+        if b[0] == "p" and _is_ref_heading(b[1]):
             in_refs = True          # 标题没设成 Heading 也能认
             continue
         if in_refs:
