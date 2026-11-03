@@ -153,6 +153,9 @@ def heading_of(par):
     txt = norm(par.text)
     if not txt:
         return 0, None
+    # 既没有汉字也没有字母（如 "~39 ℃"、"12.5"）不可能是标题
+    if not re.search(r"[\u4e00-\u9fffA-Za-z]", txt):
+        return 0, None
 
     lvl = _style_level(par) or _outline_level(par)
     if lvl:
@@ -293,7 +296,91 @@ def collect(doc, figdir, prefix="", log=None):
             continue
 
         blocks.append(("p", txt))
-    return blocks
+    return [b for b in blocks if not _is_junk_fragment(b)]
+
+
+def _is_junk_fragment(b) -> bool:
+    """PDF 转出来的稿子里，页码/角标常单独成段（如 "2"、"12"），丢掉。"""
+    if b[0] not in ("p", "li"):
+        return False
+    t = norm(b[1] if isinstance(b[1], str) else "")
+    if not t or len(t) > 6:
+        return False
+    return not re.search(r"[A-Za-z\u4e00-\u9fff]", t)
+
+
+def _join_text(prev: str, nxt: str) -> str:
+    """把两句话拼起来：西文之间补空格，中文直接相接。"""
+    if not prev:
+        return nxt
+    if re.search(r"[A-Za-z0-9\)\]]$", prev) and re.match(r"[A-Za-z0-9(]", nxt):
+        return prev + " " + nxt
+    return prev + nxt
+
+
+def _merge_paragraph_fragments(blocks):
+    """上一段没有句末标点时，把下一段接回去（PDF 转 Word 常把一句话切成几段）。"""
+    out = []
+    for b in blocks:
+        if (out and b[0] == "p" and out[-1][0] == "p"
+                and len(out[-1][1]) >= 6
+                and not out[-1][1].rstrip().endswith(TERMINAL_PUNCT)
+                and not LIST_MARK_RE.match(b[1])
+                and not BULLET_RE.match(b[1])):
+            out[-1] = ("p", _join_text(out[-1][1].rstrip(), b[1].strip()))
+            continue
+        out.append(b)
+    return out
+
+
+TERMINAL_PUNCT = ("。", "！", "？", "；", "：", "!", "?", ";", ":", "…", "”", "）", ")")
+
+
+def _merge_list_continuations(blocks):
+    """列表项被空段/软回车拆成两截时，把后面那段接回上一条。
+
+    判据：上一条是列表项且没有句末标点，下一段又不以编号开头。
+    """
+    out = []
+    for b in blocks:
+        if (out and b[0] == "p" and out[-1][0] == "li"
+                and not LIST_MARK_RE.match(b[1])
+                and not BULLET_RE.match(b[1])
+                and out[-1][1] and not out[-1][1].rstrip().endswith(TERMINAL_PUNCT)):
+            out[-1] = ("li", out[-1][1].rstrip() + b[1].strip())
+            continue
+        out.append(b)
+    return out
+
+
+def _is_short_plain_heading(b) -> bool:
+    """不带编号、很短的小标题——从表格里散出来的单元格文字通常长这样。"""
+    if b[0] != "h":
+        return False
+    t = norm(b[2])
+    if not t or NUM_HEAD_RE.match(t):
+        return False
+    if re.match(r"^[（(]?[一二三四五六七八九十百\d]+[、.．)）]", t):
+        return False
+    return len(t) <= 8
+
+
+def demote_table_fragments(blocks):
+    """连续 ≥3 个“短、无编号”的小标题，多半是表格被打散后的单元格，降级为正文。"""
+    out = list(blocks)
+    i = 0
+    while i < len(out):
+        if _is_short_plain_heading(out[i]):
+            j = i
+            while j < len(out) and _is_short_plain_heading(out[j]):
+                j += 1
+            if j - i >= 3:
+                for k in range(i, j):
+                    out[k] = ("p", out[k][2])
+            i = j
+        else:
+            i += 1
+    return out
 
 
 def _looks_like_ref(text: str) -> bool:
@@ -368,6 +455,8 @@ def split_lead_and_refs(blocks):
             continue
         break
     body = kept[i:]
+    body = _merge_list_continuations(body)
+    body = _merge_paragraph_fragments(body)
     return lead, body, refs
 
 
@@ -398,11 +487,16 @@ def group_label_items(blocks):
 
 
 def fix_heading_levels(blocks):
-    """层级防跳级：首次出现的最浅级当作 1 级；不允许一次跳两级以上。"""
+    """层级防跳级：以开头几个标题里最浅的一级为 1 级；不允许一次跳两级以上。
+
+    用“前 3 个标题”而不是全局最小值：有些稿子里混着从表格散出来的浅层标题，
+    取全局最小值会把整份稿子压到 0 级（排版出现 0.1. 这种编号）。
+    """
+    blocks = demote_table_fragments(blocks)
     levels = [b[1] for b in blocks if b[0] == "h"]
     if not levels:
         return blocks
-    top = min(levels)
+    top = min(levels[:3])
     out = []
     prev = 1
     for b in blocks:
@@ -993,12 +1087,14 @@ def convert_single(docx_path, outdir, title="", author="", compile_pdf=False,
         body = body[1:]
     lead = [t for t in lead if not _looks_like_kicker(t)]
 
-    # 稿件最前面的那个标题就是文章题目（不管它被 Word 标成几级）
+    # 题目取谁：开头有题目行（且不是“PBL 大报告”这类页眉）就用它；
+    # 没有题目行，才把稿件最前面的那个标题当题目（不管它被 Word 标成几级）。
     title_from_heading = ""
-    if body and body[0][0] == "h" and len(body[0][2]) >= 6 \
-            and (not title or _same_text(title, body[0][2])):
-        title_from_heading = body[0][2]
-        body = fix_heading_levels(body[1:])
+    if body and body[0][0] == "h" and len(body[0][2]) >= 6:
+        duplicated = bool(lead) and _same_text(lead[0], body[0][2])
+        if (not lead or duplicated) and (not title or _same_text(title, body[0][2])):
+            title_from_heading = body[0][2]
+            body = fix_heading_levels(body[1:])
 
     if not title:
         title = title_from_heading or (lead[0] if lead else stem)
